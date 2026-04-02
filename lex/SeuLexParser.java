@@ -34,6 +34,36 @@ public class SeuLexParser {
     private final Map<String, String> regularDefs = new LinkedHashMap<>();
     private final List<LexRule> rules = new ArrayList<>();
 
+    // ========== Getter 方法 ==========
+    public Map<String, String> getRegularDefs() {
+        return regularDefs;
+    }
+
+    public List<LexRule> getRules() {
+        return rules;
+    }
+
+    /**
+     * 获取定义段文本（用于测试）
+     */
+    public String getDefinitionPart() {
+        return definitionPart;
+    }
+
+    /**
+     * 获取规则段文本（用于测试）
+     */
+    public String getRulePart() {
+        return rulePart;
+    }
+
+    /**
+     * 获取用户代码段文本（用于测试）
+     */
+    public String getUserSubroutinePart() {
+        return userSubroutinePart;
+    }
+
     /**
      * 第一步：将 Lex 文件内容拆分为三个核心部分
      */
