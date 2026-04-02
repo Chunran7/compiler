@@ -101,21 +101,32 @@ public class SeuLexParser {
     }
 
     /**
-     * 第三步：解析规则段 (初步实现：提取行)
+     * 第三步：解析规则段，提取正则表达式和动作
      */
     public void parseRules() {
         String[] lines = rulePart.split("\n");
         int ruleId = 0;
+        
         for (String line : lines) {
             line = line.trim();
-            if (line.isEmpty())
+            if (line.isEmpty() || line.startsWith("%"))
                 continue;
 
-            // 这里使用一个简单的逻辑：寻找第一个空格或制表符作为 RE 和 Action 的分界
-            // 复杂的解析建议后续使用双指针或更强的正则
-            int splitIdx = line.indexOf(' ');
-            if (splitIdx == -1)
-                splitIdx = line.indexOf('\t');
+            // 寻找第一个空白字符（空格或制表符）作为 RE 和 Action 的分界
+            // 需要跳过引号内的内容
+            int splitIdx = -1;
+            boolean inQuotes = false;
+            
+            for (int i = 0; i < line.length(); i++) {
+                char c = line.charAt(i);
+                
+                if (c == '"' && (i == 0 || line.charAt(i - 1) != '\\')) {
+                    inQuotes = !inQuotes;
+                } else if (!inQuotes && (c == ' ' || c == '\t')) {
+                    splitIdx = i;
+                    break;
+                }
+            }
 
             if (splitIdx != -1) {
                 String re = line.substring(0, splitIdx).trim();
@@ -124,6 +135,10 @@ public class SeuLexParser {
                 // 对规则中的宏进行最终展开
                 String fullRegex = expandMacros(re);
                 rules.add(new LexRule(++ruleId, fullRegex, action));
+            } else {
+                // 没有动作的规则（只有正则表达式）
+                String fullRegex = expandMacros(line);
+                rules.add(new LexRule(++ruleId, fullRegex, ""));
             }
         }
     }
@@ -143,7 +158,18 @@ public class SeuLexParser {
             // 读取 c99.l 文件内容
             String content = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(LEX_FILE_PATH)));
 
+            System.out.println("=== 原始文件内容前 200 字符 ===");
+            System.out.println(content.substring(0, Math.min(200, content.length())));
+            System.out.println("\n");
+
             parser.splitLexFile(content);
+            
+            System.out.println("=== 分割后的三个部分 ===");
+            System.out.println("定义段长度：" + parser.definitionPart.length());
+            System.out.println("规则段长度：" + parser.rulePart.length());
+            System.out.println("用户代码段长度：" + (parser.userSubroutinePart != null ? parser.userSubroutinePart.length() : 0));
+            System.out.println();
+
             parser.parseDefinitions();
             parser.parseRules();
             parser.debugPrint();
@@ -151,6 +177,12 @@ public class SeuLexParser {
             System.out.println("\n=== 测试宏展开 ===");
             System.out.println("{L} 展开后 = " + parser.regularDefs.get("L"));
             System.out.println("{D} 展开后 = " + parser.regularDefs.get("D"));
+            System.out.println("{H} 展开后 = " + parser.regularDefs.get("H"));
+            
+            System.out.println("\n=== 前 5 条规则 ===");
+            for (int i = 0; i < Math.min(5, parser.rules.size()); i++) {
+                System.out.println(parser.rules.get(i));
+            }
         } catch (Exception e) {
             System.err.println("读取文件失败：" + e.getMessage());
             e.printStackTrace();
