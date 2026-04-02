@@ -1,0 +1,3 @@
+com\compiler\yacc\SmokeTest.class
+com\compiler\yacc\support\MiniCLexer.class
+com\compiler\yacc\token\MiniCLexerTest.class
