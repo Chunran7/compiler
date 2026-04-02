@@ -1,3 +1,0 @@
-# seuyacc
-
-Yacc ²¿·ÖÄ£¿é¡£
