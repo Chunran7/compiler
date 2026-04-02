@@ -40,6 +40,7 @@ public class SeuLexParser {
     public void splitLexFile(String fullContent) {
         // 使用正则匹配行首的 %%
         String[] sections = fullContent.split("(?m)^%%\\s*");
+        // (?m)多行模式，^ 表示行首，\\s* 表示任意空白字符
 
         if (sections.length >= 1)
             definitionPart = sections[0].trim();
@@ -54,19 +55,22 @@ public class SeuLexParser {
      */
     public void parseDefinitions() {
         String[] lines = definitionPart.split("\n");
-        // 匹配格式：name translation
-        // 排除以 %{ 开头的声明代码
         Pattern defPattern = Pattern.compile("^([A-Z_][A-Z0-9_]*)\\s+(.+)$");
+        // 第一段：^([A-Z_][A-Z0-9_]*) - 捕获宏名称，第二段：\\s+ - 匹配分隔符，第三段：(.+)$ - 捕获翻译内容
+
         // 匹配 C 风格注释的正则
         Pattern commentPattern = Pattern.compile("/\\*.*?\\*/|//.*$");
 
         for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty() || line.startsWith("%"))
+            line = line.trim();// 去掉行首尾空白
+            if (line.isEmpty() || line.startsWith("%")) // 跳过空行和%{ %}开头的
                 continue;
 
+            // 检查格式是否匹配正则定义的规范
             Matcher m = defPattern.matcher(line);
             if (m.find()) {
+
+                // 分别获取宏名称和翻译内容
                 String name = m.group(1);
                 String translation = m.group(2);
 
@@ -86,10 +90,15 @@ public class SeuLexParser {
     private String expandMacros(String input) {
         String result = input;
         boolean changed;
+
+        // 不断替换宏引用直到没有可以替换的为止
         do {
             changed = false;
             for (Map.Entry<String, String> entry : regularDefs.entrySet()) {
+                // entry.getKey() 是宏名称，entry.getValue() 是宏定义的内容
                 String macro = "{" + entry.getKey() + "}";
+                // macro一定是以 { 开头，} 结尾的字符串，区分于正常字符
+
                 if (result.contains(macro)) {
                     // 使用括号包裹以维持优先级
                     result = result.replace(macro, "(" + entry.getValue() + ")");
@@ -106,20 +115,21 @@ public class SeuLexParser {
     public void parseRules() {
         String[] lines = rulePart.split("\n");
         int ruleId = 0;
-        
+
         for (String line : lines) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("%"))
                 continue;
 
             // 寻找第一个空白字符（空格或制表符）作为 RE 和 Action 的分界
-            // 需要跳过引号内的内容
+            // 需要跳过引号内的内容，避免由于规则中包含引号而导致的错误分割
             int splitIdx = -1;
             boolean inQuotes = false;
-            
+
             for (int i = 0; i < line.length(); i++) {
                 char c = line.charAt(i);
-                
+
+                // 检查引号，如果引号位于开头或者前面没有转义符，则切换状态
                 if (c == '"' && (i == 0 || line.charAt(i - 1) != '\\')) {
                     inQuotes = !inQuotes;
                 } else if (!inQuotes && (c == ' ' || c == '\t')) {
@@ -163,11 +173,12 @@ public class SeuLexParser {
             System.out.println("\n");
 
             parser.splitLexFile(content);
-            
+
             System.out.println("=== 分割后的三个部分 ===");
             System.out.println("定义段长度：" + parser.definitionPart.length());
             System.out.println("规则段长度：" + parser.rulePart.length());
-            System.out.println("用户代码段长度：" + (parser.userSubroutinePart != null ? parser.userSubroutinePart.length() : 0));
+            System.out
+                    .println("用户代码段长度：" + (parser.userSubroutinePart != null ? parser.userSubroutinePart.length() : 0));
             System.out.println();
 
             parser.parseDefinitions();
@@ -178,7 +189,7 @@ public class SeuLexParser {
             System.out.println("{L} 展开后 = " + parser.regularDefs.get("L"));
             System.out.println("{D} 展开后 = " + parser.regularDefs.get("D"));
             System.out.println("{H} 展开后 = " + parser.regularDefs.get("H"));
-            
+
             System.out.println("\n=== 前 5 条规则 ===");
             for (int i = 0; i < Math.min(5, parser.rules.size()); i++) {
                 System.out.println(parser.rules.get(i));
