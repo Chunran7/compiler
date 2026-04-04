@@ -81,4 +81,8 @@ public class Grammar {
     public NonTerminal getNonTerminal(String name) {
         return nonTerminals.get(name);
     }
+
+    public Production getProduction(int id) {
+        return productions.get(id);
+    }
 }
