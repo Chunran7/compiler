@@ -1,2 +1,8 @@
+D:\compiler\yacc\src\main\java\com\compiler\yacc\grammar\Grammar.java
+D:\compiler\yacc\src\main\java\com\compiler\yacc\grammar\NonTerminal.java
+D:\compiler\yacc\src\main\java\com\compiler\yacc\grammar\Production.java
+D:\compiler\yacc\src\main\java\com\compiler\yacc\grammar\SubsetGrammarFactory.java
+D:\compiler\yacc\src\main\java\com\compiler\yacc\grammar\Symbol.java
+D:\compiler\yacc\src\main\java\com\compiler\yacc\grammar\Terminal.java
 D:\compiler\yacc\src\main\java\com\compiler\yacc\token\Token.java
 D:\compiler\yacc\src\main\java\com\compiler\yacc\token\TokenType.java
