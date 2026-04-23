@@ -1,0 +1,30 @@
+package com.example.compiler.yacc.token;
+
+public enum TokenType {
+    INT,
+    MAIN,
+    IF,
+    ELSE,
+    WHILE,
+    RETURN,
+    ID,
+    NUM,
+    PLUS,
+    MINUS,
+    STAR,
+    SLASH,
+    LT,
+    GT,
+    LE,
+    GE,
+    EQ,
+    NE,
+    ASSIGN,
+    SEMI,
+    COMMA,
+    LPAREN,
+    RPAREN,
+    LBRACE,
+    RBRACE,
+    EOF
+}
