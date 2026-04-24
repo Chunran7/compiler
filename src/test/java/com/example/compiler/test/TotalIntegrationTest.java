@@ -22,6 +22,7 @@ import com.example.compiler.yacc.runtime.ParseResult;
 import com.example.compiler.yacc.runtime.ParserDriver;
 import com.example.compiler.yacc.token.Token;
 import com.example.compiler.yacc.token.TokenType;
+import com.example.compiler.yacc.emitter.AstMarkdownEmitter;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
@@ -47,6 +48,7 @@ public final class TotalIntegrationTest {
         testSemanticActionNodesAppearInParseTree();
         testActionPatternParsingAndRegistry();
         testTranslationSchemeExecutorFirstPass();
+        testAstMarkdownEmission();
         testYaccParsingAndIrGeneration();
         testDuplicateDeclaration();
         testUndeclaredUse();
@@ -339,6 +341,42 @@ public final class TotalIntegrationTest {
         System.out.println("[PASS] Translation scheme executor first pass");
     }
 
+    private static void testAstMarkdownEmission() throws Exception {
+        SeuYaccGenerator generator;
+        try (Reader reader = new FileReader(grammarPath().toFile())) {
+            generator = new SeuYaccGenerator(reader, true);
+        }
+
+        ParserDriver driver = new ParserDriver(generator.getGrammar(), generator.getParseTable());
+        ParseResult parseResult = driver.parse(TestSupport.validProgramTokens());
+
+        assertTrue(parseResult.isAccepted(), "parse should succeed before markdown emission");
+        assertNotNull(parseResult.getAstRoot(), "parse tree root should not be null");
+
+        AstMarkdownEmitter emitter = new AstMarkdownEmitter();
+
+        Path parseTreeOutput = Path.of("generated", "parse-tree.md");
+        emitter.writeParseTree(
+                parseTreeOutput,
+                parseResult.getAstRoot(),
+                "Parse Tree With Semantic Actions"
+        );
+
+        YaccIrBridge bridge = new YaccIrBridge();
+        SemanticResult semanticResult = bridge.analyze(parseResult);
+
+        Path coreAstOutput = Path.of("generated", "core-ast.md");
+        emitter.writeCoreAst(
+                coreAstOutput,
+                semanticResult.astRoot(),
+                "Core Semantic AST"
+        );
+
+        assertTrue(Files.exists(parseTreeOutput), "parse tree markdown should exist");
+        assertTrue(Files.exists(coreAstOutput), "core AST markdown should exist");
+
+        System.out.println("[PASS] AST markdown emission");
+    }
     private static boolean containsExecutedSemanticActionNode(AstNode node) {
         if (node.isSemanticActionNode() && node.getSemanticValue() != null) {
             return true;
