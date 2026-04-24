@@ -12,3 +12,15 @@ target/
 # OS
 .DS_Store
 Thumbs.db
+
+# Build / generated runtime artifacts
+out/
+generated-classes/
+*.class
+
+# Test/runtime generated files
+generated/sample.tokens
+
+# If generated parser/semantic programs are only build artifacts, ignore them too:
+generated/YYParseProgram.java
+generated/YYSemanticProgram.java

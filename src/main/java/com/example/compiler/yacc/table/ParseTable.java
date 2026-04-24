@@ -39,4 +39,20 @@ public final class ParseTable {
     public Integer getGoto(int state, NonTerminal nonTerminal) {
         return gotos.getOrDefault(state, Map.of()).get(nonTerminal);
     }
+
+    public Map<Integer, Map<Terminal, Action>> actionRows() {
+        Map<Integer, Map<Terminal, Action>> snapshot = new LinkedHashMap<>();
+        for (Map.Entry<Integer, Map<Terminal, Action>> entry : actions.entrySet()) {
+            snapshot.put(entry.getKey(), new LinkedHashMap<>(entry.getValue()));
+        }
+        return snapshot;
+    }
+
+    public Map<Integer, Map<NonTerminal, Integer>> gotoRows() {
+        Map<Integer, Map<NonTerminal, Integer>> snapshot = new LinkedHashMap<>();
+        for (Map.Entry<Integer, Map<NonTerminal, Integer>> entry : gotos.entrySet()) {
+            snapshot.put(entry.getKey(), new LinkedHashMap<>(entry.getValue()));
+        }
+        return snapshot;
+    }
 }

@@ -4,21 +4,27 @@ import com.example.compiler.ir.IrInstruction;
 import com.example.compiler.ir.IrOp;
 import com.example.compiler.yacc.ast.AstKind;
 import com.example.compiler.yacc.ast.AstNode;
-import com.example.compiler.yacc.ast.AstNormalizer;
 import com.example.compiler.yacc.ast.CoreAstNode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public final class SemanticActionEngine {
-    private final AstNormalizer normalizer = new AstNormalizer();
+    private final TranslationSchemeExecutor executor = new TranslationSchemeExecutor();
 
     private List<IrInstruction> instructions;
     private int tempCounter;
     private int labelCounter;
 
     public SemanticResult analyze(AstNode parseTreeRoot) {
-        CoreAstNode coreRoot = normalizer.normalize(parseTreeRoot);
+        executor.execute(parseTreeRoot);
+
+        Object semanticRoot = parseTreeRoot.getSemanticValue();
+        if (!(semanticRoot instanceof CoreAstNode coreRoot)) {
+            throw new IllegalStateException(
+                    "TranslationSchemeExecutor did not produce a CoreAstNode root, actual value: " + semanticRoot
+            );
+        }
 
         SymbolTable symbolTable = new SymbolTable();
         this.instructions = new ArrayList<>();

@@ -84,9 +84,17 @@ public final class ParserDriver {
                 AstNode parent;
 
                 if (isSemanticActionProduction(production)) {
-                    parent = AstNode.semanticAction(left.getName(), production.getActionCode());
+                    parent = AstNode.semanticAction(
+                            left.getName(),
+                            production.getActionCode(),
+                            production.getId()
+                    );
                 } else {
-                    parent = AstNode.nonTerminal(left.getName(), children);
+                    parent = AstNode.nonTerminal(
+                            left.getName(),
+                            children,
+                            production.getId()
+                    );
                 }
 
                 Integer gotoState = parseTable.getGoto(stateStack.peek(), left);

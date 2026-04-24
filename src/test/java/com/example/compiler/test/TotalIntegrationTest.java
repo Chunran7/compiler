@@ -5,7 +5,16 @@ import com.example.compiler.ir.LlvmLikeTextEmitter;
 import com.example.compiler.ir.YaccIrBridge;
 import com.example.compiler.semantic.SemanticException;
 import com.example.compiler.semantic.SemanticResult;
+import com.example.compiler.semantic.TranslationSchemeExecutor;
+import com.example.compiler.semantic.action.ActionArgument;
+import com.example.compiler.semantic.action.ActionPattern;
+import com.example.compiler.semantic.action.ActionPatternParser;
+import com.example.compiler.semantic.action.ActionRegistry;
+import com.example.compiler.semantic.emitter.SemanticProgramEmitter;
+import com.example.compiler.yacc.ast.AstKind;
 import com.example.compiler.yacc.ast.AstNode;
+import com.example.compiler.yacc.ast.CoreAstNode;
+import com.example.compiler.yacc.emitter.ParserProgramEmitter;
 import com.example.compiler.yacc.generator.SeuYaccGenerator;
 import com.example.compiler.yacc.grammar.Grammar;
 import com.example.compiler.yacc.grammar.Production;
@@ -14,8 +23,13 @@ import com.example.compiler.yacc.runtime.ParserDriver;
 import com.example.compiler.yacc.token.Token;
 import com.example.compiler.yacc.token.TokenType;
 
+import javax.tools.JavaCompiler;
+import javax.tools.ToolProvider;
+import java.io.ByteArrayOutputStream;
 import java.io.FileReader;
+import java.io.PrintStream;
 import java.io.Reader;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +40,13 @@ public final class TotalIntegrationTest {
         testOperatorPrecedenceGrammar();
         testLalrStateMerging();
         testConflictReporting();
+        testGeneratedParserProgramEmission();
+        testGeneratedSemanticProgramEmission();
+        testGeneratedProgramsCompile();
+        testGeneratedProgramsRunSmokeTest();
         testSemanticActionNodesAppearInParseTree();
+        testActionPatternParsingAndRegistry();
+        testTranslationSchemeExecutorFirstPass();
         testYaccParsingAndIrGeneration();
         testDuplicateDeclaration();
         testUndeclaredUse();
@@ -117,8 +137,116 @@ public final class TotalIntegrationTest {
         }
 
         assertTrue(thrown, "ambiguous grammar should trigger explicit conflict reporting");
-
         System.out.println("[PASS] Conflict reporting verified");
+    }
+
+    private static void testGeneratedParserProgramEmission() throws Exception {
+        SeuYaccGenerator generator;
+        try (Reader reader = new FileReader(grammarPath().toFile())) {
+            generator = new SeuYaccGenerator(reader, true);
+        }
+
+        ParserProgramEmitter emitter = new ParserProgramEmitter();
+        String source = emitter.emit("YYParseProgram", generator.getGrammar(), generator.getParseTable());
+
+        assertTrue(source.contains("public final class YYParseProgram"), "generated parser source should contain class declaration");
+        assertTrue(source.contains("public static ParseOutcome parse(List<Token> tokens)"), "generated parser source should contain parse method");
+        assertTrue(source.contains("public static void main(String[] args)"), "generated parser source should contain main method");
+        assertTrue(source.contains("putAction("), "generated parser source should contain ACTION table initialization");
+        assertTrue(source.contains("putGoto("), "generated parser source should contain GOTO table initialization");
+
+        Path output = Path.of("generated", "YYParseProgram.java");
+        emitter.emitToFile(output, "YYParseProgram", generator.getGrammar(), generator.getParseTable());
+
+        assertTrue(Files.exists(output), "generated parser source file should exist");
+        String written = Files.readString(output);
+        assertTrue(written.contains("PARSE ACCEPTED"), "written generated parser should contain runnable main output");
+
+        System.out.println("[PASS] Generated parser program emission");
+    }
+
+    private static void testGeneratedSemanticProgramEmission() throws Exception {
+        SemanticProgramEmitter emitter = new SemanticProgramEmitter();
+        String source = emitter.emit("YYSemanticProgram");
+
+        assertTrue(source.contains("public final class YYSemanticProgram"), "generated semantic source should contain class declaration");
+        assertTrue(source.contains("SemanticActionEngine"), "generated semantic source should use SemanticActionEngine");
+        assertTrue(source.contains("IrGenerator"), "generated semantic source should use IrGenerator");
+        assertTrue(source.contains("public static void main(String[] args)"), "generated semantic source should contain main method");
+        assertTrue(source.contains("SEMANTIC OK"), "generated semantic source should contain semantic success output");
+        assertTrue(source.contains("=== PRELIMINARY TAC ==="), "generated semantic source should contain TAC output section");
+        assertTrue(source.contains("=== LLVM-LIKE IR ==="), "generated semantic source should contain IR output section");
+
+        Path output = Path.of("generated", "YYSemanticProgram.java");
+        emitter.emitToFile(output, "YYSemanticProgram");
+
+        assertTrue(Files.exists(output), "generated semantic source file should exist");
+        String written = Files.readString(output);
+        assertTrue(written.contains("Usage: java YYSemanticProgram <grammar-file> <token-file>"),
+                "written generated semantic program should contain runnable usage message");
+
+        System.out.println("[PASS] Generated semantic program emission");
+    }
+
+    private static void testGeneratedProgramsCompile() throws Exception {
+        Path parserSource = Path.of("generated", "YYParseProgram.java");
+        Path semanticSource = Path.of("generated", "YYSemanticProgram.java");
+
+        assertTrue(Files.exists(parserSource), "generated parser source should exist before compilation");
+        assertTrue(Files.exists(semanticSource), "generated semantic source should exist before compilation");
+
+        Path outputDir = Path.of("generated-classes");
+        Files.createDirectories(outputDir);
+
+        compileJavaSource(parserSource, outputDir);
+        compileJavaSource(semanticSource, outputDir);
+
+        assertTrue(Files.exists(outputDir.resolve("YYParseProgram.class")),
+                "compiled YYParseProgram.class should exist");
+        assertTrue(Files.exists(outputDir.resolve("YYSemanticProgram.class")),
+                "compiled YYSemanticProgram.class should exist");
+
+        System.out.println("[PASS] Generated programs compile");
+    }
+
+    private static void testGeneratedProgramsRunSmokeTest() throws Exception {
+        Path parserJava = Path.of("generated", "YYParseProgram.java");
+        Path semanticJava = Path.of("generated", "YYSemanticProgram.java");
+        Path classDir = Path.of("generated-classes");
+        Path tokenFile = Path.of("generated", "sample.tokens");
+        Path grammarFile = grammarPath();
+
+        assertTrue(Files.exists(parserJava), "generated parser source should exist before smoke test");
+        assertTrue(Files.exists(semanticJava), "generated semantic source should exist before smoke test");
+        assertTrue(Files.exists(classDir.resolve("YYParseProgram.class")),
+                "compiled YYParseProgram.class should exist before smoke test");
+        assertTrue(Files.exists(classDir.resolve("YYSemanticProgram.class")),
+                "compiled YYSemanticProgram.class should exist before smoke test");
+
+        writeTokenFile(tokenFile, TestSupport.validProgramTokens());
+
+        String parserOutput = runGeneratedProgram(
+                "YYParseProgram",
+                classDir,
+                tokenFile.toString()
+        );
+        assertTrue(parserOutput.contains("PARSE ACCEPTED"),
+                "generated parser program should accept the sample token file");
+
+        String semanticOutput = runGeneratedProgram(
+                "YYSemanticProgram",
+                classDir,
+                grammarFile.toString(),
+                tokenFile.toString()
+        );
+        assertTrue(semanticOutput.contains("SEMANTIC OK"),
+                "generated semantic program should complete semantic phase");
+        assertTrue(semanticOutput.contains("=== PRELIMINARY TAC ==="),
+                "generated semantic program should print TAC");
+        assertTrue(semanticOutput.contains("=== LLVM-LIKE IR ==="),
+                "generated semantic program should print LLVM-like IR");
+
+        System.out.println("[PASS] Generated programs run smoke test");
     }
 
     private static void testSemanticActionNodesAppearInParseTree() throws Exception {
@@ -137,6 +265,90 @@ public final class TotalIntegrationTest {
         assertTrue(containsSemanticActionNode(root), "parse tree should contain semantic action nodes");
 
         System.out.println("[PASS] Semantic action nodes appear in parse tree");
+    }
+
+    private static void testActionPatternParsingAndRegistry() {
+        ActionPatternParser parser = new ActionPatternParser();
+
+        ActionPattern directAssign = parser.parse("$$ = $1;");
+        assertTrue(directAssign.isDirectReferenceAssign(), "direct assign action should be parsed as direct reference");
+        assertEquals(1, directAssign.getDirectReferenceIndex(), "direct assign ref index mismatch");
+
+        ActionPattern functionAssign = parser.parse("$$ = makeBinary(\"+\", $1, $3);");
+        assertTrue(functionAssign.isFunctionCallAssign(), "function assign action should be parsed as function call");
+        assertEquals("makeBinary", functionAssign.getInvocation().getFunctionName(), "function name mismatch");
+        assertEquals(3, functionAssign.getInvocation().getArguments().size(), "function arg size mismatch");
+
+        ActionArgument arg0 = functionAssign.getInvocation().getArguments().get(0);
+        ActionArgument arg1 = functionAssign.getInvocation().getArguments().get(1);
+        ActionArgument arg2 = functionAssign.getInvocation().getArguments().get(2);
+
+        assertTrue(arg0.isStringLiteral(), "arg0 should be a string literal");
+        assertEquals("+", arg0.getText(), "arg0 literal mismatch");
+
+        assertTrue(arg1.isPositionalRef(), "arg1 should be positional ref");
+        assertEquals(1, arg1.getRefIndex(), "arg1 ref mismatch");
+
+        assertTrue(arg2.isPositionalRef(), "arg2 should be positional ref");
+        assertEquals(3, arg2.getRefIndex(), "arg2 ref mismatch");
+
+        ActionRegistry registry = ActionRegistry.defaultRegistry();
+        assertTrue(registry.contains("makeProgram"), "registry should contain makeProgram");
+        assertTrue(registry.contains("makeBinary"), "registry should contain makeBinary");
+        assertTrue(registry.contains("makeCall"), "registry should contain makeCall");
+        assertTrue(!registry.contains("nonExistingAction"), "registry should not contain unknown action");
+
+        System.out.println("[PASS] Action pattern parsing and registry");
+    }
+
+    private static void testTranslationSchemeExecutorFirstPass() throws Exception {
+        SeuYaccGenerator generator;
+        try (Reader reader = new FileReader(grammarPath().toFile())) {
+            generator = new SeuYaccGenerator(reader, true);
+        }
+
+        ParserDriver driver = new ParserDriver(generator.getGrammar(), generator.getParseTable());
+        ParseResult parseResult = driver.parse(TestSupport.validProgramTokens());
+
+        assertTrue(parseResult.isAccepted(), "parse should succeed for translation scheme executor test");
+        assertNotNull(parseResult.getAstRoot(), "parse tree root should not be null");
+
+        TranslationSchemeExecutor executor = new TranslationSchemeExecutor();
+        executor.execute(parseResult.getAstRoot());
+
+        Object rootValue = parseResult.getAstRoot().getSemanticValue();
+        assertNotNull(rootValue, "root semantic value should not be null after executing translation scheme");
+        assertTrue(rootValue instanceof CoreAstNode, "root semantic value should be CoreAstNode");
+
+        CoreAstNode rootNode = (CoreAstNode) rootValue;
+        assertEquals(AstKind.PROGRAM, rootNode.getKind(), "root semantic AST kind mismatch");
+        assertTrue(rootNode.getChildren().size() >= 2, "program semantic AST should contain functions");
+
+        boolean hasMain = false;
+        for (CoreAstNode child : rootNode.getChildren()) {
+            if (child.getKind() == AstKind.MAIN_FUNCTION) {
+                hasMain = true;
+                break;
+            }
+        }
+        assertTrue(hasMain, "semantic AST should contain main function");
+
+        assertTrue(containsExecutedSemanticActionNode(parseResult.getAstRoot()),
+                "at least one semantic action node should have executed and stored semanticValue");
+
+        System.out.println("[PASS] Translation scheme executor first pass");
+    }
+
+    private static boolean containsExecutedSemanticActionNode(AstNode node) {
+        if (node.isSemanticActionNode() && node.getSemanticValue() != null) {
+            return true;
+        }
+        for (AstNode child : node.getChildren()) {
+            if (containsExecutedSemanticActionNode(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean containsSemanticActionNode(AstNode node) {
@@ -168,25 +380,20 @@ public final class TotalIntegrationTest {
         YaccIrBridge bridge = new YaccIrBridge();
         SemanticResult semanticResult = bridge.analyze(parseResult);
         assertNotNull(semanticResult.astRoot(), "semantic AST should not be null");
-        assertTrue(semanticResult.symbolTable().getAllSymbols().size() >= 4, "symbol table should contain functions and variables");
-        assertTrue(!semanticResult.preliminaryIr().isEmpty(), "semantic engine should emit preliminary TAC");
+        assertTrue(semanticResult.symbolTable().getAllSymbols().size() >= 4,
+                "symbol table should contain functions and variables");
+        assertTrue(!semanticResult.preliminaryIr().isEmpty(),
+                "semantic engine should emit preliminary TAC");
 
         IrGenerationResult ir = bridge.generate(parseResult);
-
-        System.out.println("=== DEBUG IR INSTRUCTIONS ===");
-        for (var instruction : ir.getInstructions()) {
-            System.out.println(instruction);
-        }
-
         String llvmText = new LlvmLikeTextEmitter().emit(ir);
-        System.out.println("=== DEBUG LLVM TEXT ===");
-        System.out.println(llvmText);
 
         assertTrue(ir.getInstructions().size() > 0, "IR should not be empty");
         assertTrue(llvmText.contains("define i32 @add()"), "IR text should contain add function");
         assertTrue(llvmText.contains("define i32 @main()"), "IR text should contain main function");
         assertTrue(llvmText.contains("call add("), "IR text should contain function call");
-        assertTrue(llvmText.contains("ifFalse") || llvmText.contains("goto"), "IR text should contain control-flow");
+        assertTrue(llvmText.contains("ifFalse") || llvmText.contains("goto"),
+                "IR text should contain control-flow");
 
         System.out.println("[PASS] Yacc + Semantic + IR pipeline");
     }
@@ -283,6 +490,61 @@ public final class TotalIntegrationTest {
 
     private static Path grammarPath() {
         return Path.of("resources", "miniC_semantic_template.y");
+    }
+
+    private static void compileJavaSource(Path sourceFile, Path outputDir) throws Exception {
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        assertNotNull(compiler, "System Java compiler should be available");
+
+        String classpath = System.getProperty("java.class.path");
+        int exitCode = compiler.run(
+                null,
+                null,
+                null,
+                "-encoding", "UTF-8",
+                "-cp", classpath,
+                "-d", outputDir.toString(),
+                sourceFile.toString()
+        );
+
+        assertTrue(exitCode == 0, "Compilation failed for " + sourceFile + ", exitCode=" + exitCode);
+    }
+
+    private static void writeTokenFile(Path file, List<Token> tokens) throws Exception {
+        if (file.getParent() != null) {
+            Files.createDirectories(file.getParent());
+        }
+
+        List<String> lines = new ArrayList<>();
+        for (Token token : tokens) {
+            lines.add(token.type().name() + " " + token.lexeme());
+        }
+        Files.write(file, lines);
+    }
+
+    private static String runGeneratedProgram(String className, Path classDir, String... args) throws Exception {
+        try (var loader = new java.net.URLClassLoader(
+                new java.net.URL[]{classDir.toUri().toURL()},
+                TotalIntegrationTest.class.getClassLoader()
+        )) {
+            Class<?> clazz = Class.forName(className, true, loader);
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            PrintStream originalOut = System.out;
+            PrintStream originalErr = System.err;
+
+            try (PrintStream capture = new PrintStream(baos, true, "UTF-8")) {
+                System.setOut(capture);
+                System.setErr(capture);
+
+                clazz.getMethod("main", String[].class).invoke(null, (Object) args);
+            } finally {
+                System.setOut(originalOut);
+                System.setErr(originalErr);
+            }
+
+            return baos.toString("UTF-8");
+        }
     }
 
     private static void assertTrue(boolean value, String message) {
