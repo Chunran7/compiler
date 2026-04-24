@@ -5,6 +5,8 @@ target/
 # IntelliJ IDEA
 .idea/
 *.iml
+out/
+**/out/
 
 # Logs
 *.log
