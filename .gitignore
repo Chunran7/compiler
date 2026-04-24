@@ -22,6 +22,7 @@ generated-classes/
 
 # Test/runtime generated files
 generated/sample.tokens
+generated/*.md
 
 # If generated parser/semantic programs are only build artifacts, ignore them too:
 generated/YYParseProgram.java
