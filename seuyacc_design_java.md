@@ -1,0 +1,433 @@
+# SeuYacc 模块详细设计文档
+### 71123236 李州豫
+## 1. 模块定位
+```text
+语法规则 / 语义规则（c99.y）
+    ↓
+语法分析程序生成器（YACC）
+    ↓
+GeneratedParser.java
+    ↓
+可执行的语法分析程序
+    ↓
+带语义动作节点的语法树
+```
+
+本模块的作用是：
+
+1. 读取 `c99.y`；
+2. 构造 LR 分析表；
+3. 自动生成 Java 语法分析器；
+4. 对词法分析得到的 Token 流做移进-归约分析；
+5. 在归约阶段构造 AST，供后续语义分析和中间代码生成使用。
+
+---
+
+## 2. 输入与输出
+
+### 2.1 输入
+
+- `grammar/c99.y`
+- 词法分析器输出的 `Token` 序列
+
+### 2.2 输出
+
+- `generated/GeneratedParser.java`
+- 运行时输出 `ASTNode root`
+- 语法错误信息
+- 调试信息：FIRST 集、LR(1) 项目集、ACTION/GOTO 表
+
+---
+
+## 3. 设计目标
+
+### 3.1 功能目标
+
+- 支持 `%token`、优先级和结合性声明
+- 支持上下文无关文法规则定义
+- 支持归约时语义动作分派
+- 生成可执行的 Java 语法分析器
+- 支持 AST 构造
+
+### 3.2 非功能目标
+
+- 结构清晰，便于调试
+- 便于后续扩展到 LALR(1)
+- 与 Lex 和语义模块接口一致
+
+---
+
+## 4. Java 类设计
+
+```text
+seuyacc/
+├── YaccRuleParser.java
+├── Grammar.java
+├── Production.java
+├── LR1Item.java
+├── LR1State.java
+├── FirstSetBuilder.java
+├── LR1CollectionBuilder.java
+├── ParseTableBuilder.java
+├── ActionEntry.java
+├── ActionType.java
+└── SeuYaccGenerator.java
+```
+
+### 4.1 `YaccRuleParser`
+
+职责：
+- 解析 `.y` 文件的声明区、规则区、用户代码区
+- 提取 `%token`、优先级、产生式、语义动作标识
+
+### 4.2 `Grammar`
+
+职责：
+- 保存文法的终结符、非终结符、开始符号和产生式
+- 提供查询接口
+
+### 4.3 `FirstSetBuilder`
+
+职责：
+- 计算 FIRST 集
+
+### 4.4 `LR1CollectionBuilder`
+
+职责：
+- 构造 `closure()` 和 `goto()`
+- 生成 LR(1) 项目集规范族
+
+### 4.5 `ParseTableBuilder`
+
+职责：
+- 构建 ACTION / GOTO 表
+- 检测冲突
+
+### 4.6 `SeuYaccGenerator`
+
+职责：
+- 将构造出的表和产生式嵌入模板
+- 生成 `GeneratedParser.java`
+
+---
+
+## 5. `.y` 文件格式设计
+
+```yacc
+%token INT IF ELSE WHILE RETURN ID NUM
+%left PLUS MINUS
+%left MUL DIV
+
+%%
+program     : function_def                { $$ = node("Program", $1); } ;
+function_def: INT ID LPAREN RPAREN block  { $$ = node("FunctionDef", $2, $5); } ;
+block       : LBRACE stmt_list RBRACE     { $$ = node("Block", $2); } ;
+stmt_list   : stmt_list stmt              { $$ = append($1, $2); }
+            | stmt                        { $$ = list($1); } ;
+stmt        : decl_stmt                   { $$ = $1; }
+            | assign_stmt                 { $$ = $1; }
+            | if_stmt                     { $$ = $1; }
+            | while_stmt                  { $$ = $1; }
+            | return_stmt                 { $$ = $1; }
+            | block                       { $$ = $1; } ;
+%%
+```
+
+说明：
+
+- `%token` 声明终结符；
+- `%left/%right` 声明优先级与结合性；
+- 规则区定义产生式；
+- 动作块不要求直接执行 Java 源码，也可以被解析成内部动作编号。
+
+---
+
+## 6. 数据结构设计
+
+### 6.1 `Production`
+
+```java
+public class Production {
+    private final int id;
+    private final String left;
+    private final List<String> right;
+}
+```
+
+### 6.2 `LR1Item`
+
+```java
+public class LR1Item {
+    private final int productionId;
+    private final int dotPos;
+    private final String lookahead;
+}
+```
+
+### 6.3 `LR1State`
+
+```java
+public class LR1State {
+    private final int id;
+    private final Set<LR1Item> items;
+    private final Map<String, Integer> transitions;
+}
+```
+
+### 6.4 `ActionEntry`
+
+```java
+public class ActionEntry {
+    public enum Type { SHIFT, REDUCE, ACCEPT, ERROR }
+    private final Type type;
+    private final int target;
+}
+```
+
+---
+
+## 7. 核心算法设计
+
+## 7.1 解析 `.y` 文件
+
+```text
+1. 读取声明区
+2. 提取 token 声明
+3. 提取优先级和结合性
+4. 读取规则区
+5. 对每个左部 A:
+6.   解析右部候选式
+7.   提取语义动作
+8.   生成 Production 列表
+9. 返回 Grammar 对象
+```
+
+## 7.2 FIRST 集
+
+```text
+1. FIRST(终结符) 初始化为自身
+2. FIRST(非终结符) 初始化为空
+3. 反复扫描所有产生式
+4. 若 A -> X1 X2 ... Xn，则按顺序把 FIRST(Xi)-{ε} 加入 FIRST(A)
+5. 若所有 Xi 都可推 ε，则将 ε 加入 FIRST(A)
+6. 直到不再变化
+```
+
+## 7.3 Closure
+
+```text
+1. J = I
+2. 对 J 中每个项目 [A -> α · B β, a]
+3. 对每个产生式 B -> γ
+4. 对每个 b ∈ FIRST(βa)
+5. 加入 [B -> · γ, b]
+6. 直到项目集不再增加
+```
+
+## 7.4 GOTO
+
+```text
+1. 对 I 中每个 [A -> α · X β, a]
+2. 加入 [A -> α X · β, a]
+3. 对结果做 closure
+4. 返回新项目集
+```
+
+## 7.5 LR(1) 项目集规范族
+
+```text
+1. 增广文法 S' -> S
+2. I0 = closure({[S' -> ·S, $]})
+3. BFS 扩展所有状态
+4. 对每个文法符号 X 计算 goto(I, X)
+5. 若生成新状态则加入集合
+6. 建立状态转移关系
+```
+
+## 7.6 ACTION / GOTO 表构造
+
+### ACTION
+- `[A -> α · a β, b]`：填 `shift`
+- `[A -> α ·, a]`：填 `reduce`
+- `[S' -> S ·, $]`：填 `accept`
+
+### GOTO
+- 对非终结符 `A`，若 `goto(I, A)=J`，则填入状态转移
+
+---
+
+## 8. 生成代码设计
+
+`SeuYaccGenerator` 负责生成 `GeneratedParser.java`，内容包括：
+
+1. 产生式数组
+2. ACTION 表常量
+3. GOTO 表常量
+4. `parse()` 主控过程
+5. `semanticActionDispatcher()` 归约动作分派器
+
+### 8.1 `parse()` 主流程
+
+```java
+public ASTNode parse() {
+    Stack<Integer> stateStack = new Stack<>();
+    Stack<Object> symbolStack = new Stack<>();
+    stateStack.push(0);
+    Token lookahead = lexer.nextToken();
+
+    while (true) {
+        int state = stateStack.peek();
+        ActionEntry action = actionTable.get(state, lookahead.getType());
+
+        switch (action.getType()) {
+            case SHIFT -> {
+                symbolStack.push(lookahead);
+                stateStack.push(action.getTarget());
+                lookahead = lexer.nextToken();
+            }
+            case REDUCE -> {
+                Production p = productions.get(action.getTarget());
+                List<Object> rhs = popRhs(symbolStack, stateStack, p.getRight().size());
+                ASTNode node = semanticActionDispatcher(p.getId(), rhs);
+                int next = gotoTable.get(stateStack.peek(), p.getLeft());
+                symbolStack.push(node);
+                stateStack.push(next);
+            }
+            case ACCEPT -> {
+                return (ASTNode) symbolStack.peek();
+            }
+            default -> throw syntaxError(state, lookahead);
+        }
+    }
+}
+```
+
+---
+
+## 9. AST 构造策略
+
+### 9.1 为什么在 Yacc 阶段构造 AST
+
+因为流程图里“可执行的语法分析程序”的输出，就是“带语义动作节点的语法树”。
+
+这说明：
+
+- AST 不是语义阶段重新造的；
+- AST 应该在归约阶段同步构造；
+- 语义阶段只是遍历并翻译这棵树。
+
+### 9.2 归约构造例子
+
+#### 产生式
+
+```text
+assign_stmt -> ID ASSIGN expr SEMI
+```
+
+#### 归约动作
+
+```java
+private ASTNode buildAssign(List<Object> rhs) {
+    Token id = (Token) rhs.get(0);
+    ASTNode expr = (ASTNode) rhs.get(2);
+
+    ASTNode node = new ASTNode(ASTNodeType.ASSIGN_STMT, "assign");
+    node.addChild(new ASTNode(ASTNodeType.IDENTIFIER, id.getLexeme()));
+    node.addChild(expr);
+    return node;
+}
+```
+
+---
+
+## 10. 错误处理设计
+
+### 10.1 语法错误
+
+当 `ACTION[state, token]` 为空时：
+
+- 抛出 `ParseException`
+- 输出错误 token 的 `lexeme`
+- 输出 `line` 和 `column`
+- 输出当前状态下期望的终结符集合
+
+### 10.2 冲突错误
+
+在构造分析表时：
+
+- 若表项被重复填写且动作不同，则报告冲突
+- 记录冲突状态、冲突符号、候选动作
+
+---
+
+## 11. 与其他模块的接口
+
+### 11.1 来自 Lex 的输入
+
+```java
+Token {
+    TokenType type;
+    String lexeme;
+    int line;
+    int column;
+}
+```
+
+### 11.2 输出给语义模块
+
+```java
+ASTNode root
+```
+
+要求：
+
+- 节点类型统一；
+- 子节点顺序固定；
+- 标识符和字面量保留原始文本。
+
+---
+
+## 12. 测试设计
+
+### 12.1 测试目标
+
+- `.y` 文件能否正确解析
+- FIRST 集是否正确
+- LR(1) 状态是否正确
+- ACTION / GOTO 表是否正确
+- AST 是否正确构造
+
+### 12.2 测试样例
+
+```c
+int main() {
+    int a;
+    a = 3 + 4;
+    return a;
+}
+```
+
+### 12.3 预期 AST
+
+```text
+Program
+└── FunctionDef(main)
+    └── Block
+        ├── DeclStmt(a)
+        ├── AssignStmt(a, 3 + 4)
+        └── ReturnStmt(a)
+```
+
+---
+
+## 13. 总结
+
+SeuYacc 模块本质上做的是两件事：
+
+1. **生成阶段**：把 `c99.y` 转成 `GeneratedParser.java`
+2. **运行阶段**：把 Token 流转成 AST
+
+它在整个系统中承上启下：
+
+- 向前承接词法分析器输出的 Token 流
+- 向后把 AST 交给语义分析与中间代码生成模块

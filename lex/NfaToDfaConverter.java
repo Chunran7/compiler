@@ -129,4 +129,129 @@ public class NfaToDfaConverter {
             });
         }
     }
+
+    /**
+     * DFA 最小化 (等价类划分法)
+     */
+    public List<DfaState> minimize(List<DfaState> dfaStates) {
+        if (dfaStates.isEmpty()) return dfaStates;
+
+        // 1. 收集所有出现过的输入字符作为字母表
+        Set<Character> alphabet = new HashSet<>();
+        for (DfaState s : dfaStates) {
+            alphabet.addAll(s.transitions.keySet());
+        }
+
+        // 2. 建立初始划分 P0
+        // 非接受态归为一组，接受态按照 acceptedRuleId 分组 (解决规则冲突)
+        Map<Integer, Set<DfaState>> acceptGroups = new HashMap<>();
+        Set<DfaState> nonAcceptGroup = new HashSet<>();
+        
+        for (DfaState s : dfaStates) {
+            if (s.isAccept) {
+                acceptGroups.computeIfAbsent(s.acceptedRuleId, k -> new HashSet<>()).add(s);
+            } else {
+                nonAcceptGroup.add(s);
+            }
+        }
+        
+        List<Set<DfaState>> P = new ArrayList<>(acceptGroups.values());
+        if (!nonAcceptGroup.isEmpty()) {
+            P.add(nonAcceptGroup);
+        }
+
+        // 3. 不断分割直至稳定
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            List<Set<DfaState>> newP = new ArrayList<>();
+            
+            for (Set<DfaState> group : P) {
+                if (group.size() <= 1) {
+                    newP.add(group);
+                    continue;
+                }
+                
+                // 将同一个 group 内的状态按照它们在各字符下的转移目标所在的分组进行签名分类
+                Map<List<Integer>, Set<DfaState>> splits = new HashMap<>();
+                for (DfaState s : group) {
+                    List<Integer> signature = new ArrayList<>();
+                    for (char c : alphabet) {
+                        DfaState nextState = s.transitions.get(c);
+                        int targetGroupIdx = -1; // -1 表示转移到死状态(无边)
+                        if (nextState != null) {
+                            targetGroupIdx = findGroupIndex(P, nextState);
+                        }
+                        signature.add(targetGroupIdx);
+                    }
+                    splits.computeIfAbsent(signature, k -> new HashSet<>()).add(s);
+                }
+                
+                newP.addAll(splits.values());
+                if (splits.size() > 1) {
+                    changed = true; // 发生了实际分割
+                }
+            }
+            P = newP;
+        }
+
+        // 4. 根据最终的等价划分重构最小 DFA
+        List<DfaState> minDfa = new ArrayList<>();
+        Map<Set<DfaState>, DfaState> groupToMinState = new HashMap<>();
+        
+        // 为每个等价类创建一个新的 DFA 状态
+        int minIdCounter = 0;
+        for (Set<DfaState> group : P) {
+            DfaState rep = group.iterator().next(); // 取一个代表元
+            // 组内所有状态的接受性质是一致的
+            DfaState newState = new DfaState(minIdCounter++, new HashSet<>()); 
+            newState.isAccept = rep.isAccept;
+            newState.acceptedRuleId = rep.acceptedRuleId;
+            minDfa.add(newState);
+            groupToMinState.put(group, newState);
+        }
+
+        // 建立新状态之间的边
+        // 找到原来的起点的旧状态，它所在的组对应的新状态就是新起点
+        DfaState oldStart = dfaStates.get(0); 
+        DfaState newStart = null;
+        
+        for (Set<DfaState> group : P) {
+            DfaState rep = group.iterator().next();
+            DfaState currentMinState = groupToMinState.get(group);
+            
+            if (group.contains(oldStart)) {
+                newStart = currentMinState;
+            }
+            
+            for (Map.Entry<Character, DfaState> entry : rep.transitions.entrySet()) {
+                char c = entry.getKey();
+                DfaState oldNext = entry.getValue();
+                Set<DfaState> targetGroup = P.get(findGroupIndex(P, oldNext));
+                DfaState newNext = groupToMinState.get(targetGroup);
+                currentMinState.transitions.put(c, newNext);
+            }
+        }
+        
+        // 把 start 调整到 index 0 的位置
+        if (newStart != null && minDfa.get(0) != newStart) {
+            minDfa.remove(newStart);
+            minDfa.add(0, newStart);
+            // 重新按顺序给一下 id，保证输出干净
+            for(int i=0; i<minDfa.size(); i++){
+                minDfa.get(i).id = i;
+            }
+        }
+
+        return minDfa;
+    }
+
+    private int findGroupIndex(List<Set<DfaState>> partitions, DfaState target) {
+        for (int i = 0; i < partitions.size(); i++) {
+            if (partitions.get(i).contains(target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
 }

@@ -155,6 +155,7 @@ public class SeuLexParser {
             // 需要跳过引号内的内容，避免由于规则中包含引号而导致的错误分割
             int splitIdx = -1;
             boolean inQuotes = false;
+            boolean inBracket = false;
 
             for (int i = 0; i < line.length(); i++) {
                 char c = line.charAt(i);
@@ -162,7 +163,11 @@ public class SeuLexParser {
                 // 检查引号，如果引号位于开头或者前面没有转义符，则切换状态
                 if (c == '"' && (i == 0 || line.charAt(i - 1) != '\\')) {
                     inQuotes = !inQuotes;
-                } else if (!inQuotes && (c == ' ' || c == '\t')) {
+                } else if (!inQuotes && c == '[' && (i == 0 || line.charAt(i - 1) != '\\')) {
+                    inBracket = true;
+                } else if (!inQuotes && c == ']' && (i == 0 || line.charAt(i - 1) != '\\')) {
+                    inBracket = false;
+                } else if (!inQuotes && !inBracket && (c == ' ' || c == '\t')) {
                     splitIdx = i;
                     break;
                 }

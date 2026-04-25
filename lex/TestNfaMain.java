@@ -20,12 +20,15 @@ public class TestNfaMain {
         NfaToDfaConverter dfaConverter = new NfaToDfaConverter();
         List<DfaState> dfaStates = dfaConverter.convert(globalStart);
 
+        System.out.println("\n>>> 开始最小化 DFA...\n");
+        dfaStates = dfaConverter.minimize(dfaStates);
+
         // 打印 DFA 状态转移表进行验证
         dfaConverter.printDfaTable(dfaStates);
         
         // 输出统计信息
         System.out.println("\n===== 统计信息 =====");
-        System.out.println("DFA 状态总数：" + dfaStates.size());
+        System.out.println("最小化后 DFA 状态总数：" + dfaStates.size());
         long acceptCount = dfaStates.stream().filter(s -> s.isAccept).count();
         System.out.println("接受态数量：" + acceptCount);
         System.out.println("中间态数量：" + (dfaStates.size() - acceptCount));
