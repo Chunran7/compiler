@@ -64,5 +64,6 @@
 #define GE_OP 322
 #define EQ_OP 323
 #define NE_OP 324
+#define TYPE_NAME 325
 
 #endif
