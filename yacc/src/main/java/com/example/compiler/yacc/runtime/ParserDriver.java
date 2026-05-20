@@ -128,6 +128,9 @@ public final class ParserDriver {
     }
 
     private Terminal mapTokenToTerminal(Token token) {
+        // Try canonical (C99) name first, fall back to raw name for MiniC grammars
+        Terminal t = grammar.getTerminal(token.type().canonical().name());
+        if (t != null) return t;
         return grammar.getTerminal(token.type().name());
     }
 }

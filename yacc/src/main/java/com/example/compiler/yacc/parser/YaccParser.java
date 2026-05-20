@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class YaccParser {
     private YaccParser() {
@@ -93,6 +95,7 @@ public final class YaccParser {
             rulesText.append(rawLine).append('\n');
         }
 
+        addImplicitCharTokens(tokenNames);
         for (String tok : tokenNames) {
             grammar.terminal(tok);
         }
@@ -519,6 +522,18 @@ public final class YaccParser {
                 inBlockComment = true;
                 continue;
             }
+            if (c == '\'') {
+                symbols.append(c);
+                inSingleQuote = true;
+                continue;
+            }
+            if (inSingleQuote) {
+                symbols.append(c);
+                if (c == '\'') {
+                    inSingleQuote = false;
+                }
+                continue;
+            }
             if (c == '{') {
                 actionDepth = 1;
                 currentAction.append(c);
@@ -555,9 +570,81 @@ public final class YaccParser {
         if (text == null || text.isBlank()) {
             return "";
         }
-        return text.trim().replaceAll("\\s+", " ");
+        return convertCharLiterals(text.trim().replaceAll("\\s+", " "));
+    }
+
+    /**
+     * Convert yacc character literals {@code 'c'} to named tokens, e.g. {@code '('} → {@code LPAREN}.
+     * Also handles digraphs like {@code <%} → {@code LBRACE}.
+     */
+    private static String convertCharLiterals(String text) {
+        // Replace digraphs
+        text = text.replace("<%", "LBRACE");
+        text = text.replace("%>", "RBRACE");
+        text = text.replace("<:", "LBRACKET");
+        text = text.replace(":>", "RBRACKET");
+
+        // Replace character literals 'c' with named token
+        Pattern charLit = Pattern.compile("'(.)'");
+        Matcher m = charLit.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String ch = m.group(1);
+            String tokenName = charToTokenName(ch);
+            m.appendReplacement(sb, Matcher.quoteReplacement(tokenName));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static String charToTokenName(String ch) {
+        if (ch.length() != 1) return ch;
+        return switch (ch.charAt(0)) {
+            case ';' -> "SEMI";
+            case '{' -> "LBRACE";
+            case '}' -> "RBRACE";
+            case ',' -> "COMMA";
+            case ':' -> "COLON";
+            case '=' -> "ASSIGN";
+            case '(' -> "LPAREN";
+            case ')' -> "RPAREN";
+            case '[' -> "LBRACKET";
+            case ']' -> "RBRACKET";
+            case '.' -> "DOT";
+            case '&' -> "AMPERSAND";
+            case '!' -> "BANG";
+            case '~' -> "TILDE";
+            case '-' -> "MINUS";
+            case '+' -> "PLUS";
+            case '*' -> "STAR";
+            case '/' -> "SLASH";
+            case '%' -> "PERCENT";
+            case '<' -> "LT";
+            case '>' -> "GT";
+            case '^' -> "CARET";
+            case '|' -> "PIPE";
+            case '?' -> "QUESTION";
+            default -> ch;
+        };
     }
 
     private record ParsedAlternative(String symbolsText, String actionCode, String explicitPrecedenceToken) {
     }
+
+    /**
+     * Adds named single-char tokens (SEMI, LPAREN, etc.) that appear as {@code 'c'} in
+     * yacc grammar rules to the tokenNames set so they are treated as terminals.
+     */
+    private static void addImplicitCharTokens(Set<String> tokenNames) {
+        for (String name : CHAR_TOKEN_NAMES) {
+            tokenNames.add(name);
+        }
+    }
+
+    private static final Set<String> CHAR_TOKEN_NAMES = Set.of(
+        "SEMI", "LBRACE", "RBRACE", "COMMA", "COLON", "ASSIGN",
+        "LPAREN", "RPAREN", "LBRACKET", "RBRACKET", "DOT",
+        "AMPERSAND", "BANG", "TILDE", "MINUS", "PLUS", "STAR",
+        "SLASH", "PERCENT", "LT", "GT", "CARET", "PIPE", "QUESTION"
+    );
 }

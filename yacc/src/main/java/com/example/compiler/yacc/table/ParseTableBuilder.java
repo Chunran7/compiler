@@ -109,8 +109,12 @@ public final class ParseTableBuilder {
         }
 
         if (existing.type() == ActionType.REDUCE && candidate.type() == ActionType.REDUCE) {
+            Production p1 = grammar.getProduction(existing.productionId());
+            Production p2 = grammar.getProduction(candidate.productionId());
             throw new IllegalStateException(
                     "Reduce/Reduce conflict: " + existing + " vs " + candidate
+                            + "\n  Production " + existing.productionId() + ": " + p1
+                            + "\n  Production " + candidate.productionId() + ": " + p2
             );
         }
 
@@ -130,10 +134,9 @@ public final class ParseTableBuilder {
         Precedence terminalPrecedence = grammar.getTerminalPrecedence(lookahead.getName());
         Precedence productionPrecedence = reduceProduction == null ? null : reduceProduction.getPrecedence();
 
-        // 关键修改：
-        // 没有优先级/结合性信息时，不再默认 shift，而是明确报告 conflict
+        // 没有优先级/结合性信息时，默认 shift（标准 yacc 行为，解决 dangling-else 等）
         if (terminalPrecedence == null || productionPrecedence == null) {
-            return null;
+            return shiftAction;
         }
 
         if (terminalPrecedence.level() > productionPrecedence.level()) {
