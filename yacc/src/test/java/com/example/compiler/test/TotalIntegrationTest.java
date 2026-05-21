@@ -21,8 +21,12 @@ import com.example.compiler.yacc.runtime.ParserDriver;
 import com.example.compiler.yacc.token.Token;
 import com.example.compiler.yacc.token.TokenType;
 
+import com.example.compiler.lex.GeneratedLexer;
+import com.example.compiler.yacc.token.Token;
+
 import java.io.FileReader;
 import java.io.Reader;
+import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -35,6 +39,8 @@ public final class TotalIntegrationTest {
         testLalrStateMerging();
         testConflictReporting();
         testActionPatternParsingAndRegistry();
+        testLexerProducesTokens();
+        testLexerToParserIntegration();
         testC99Pipeline();
         testAstMarkdownEmission();
         testDuplicateDeclaration();
@@ -160,6 +166,70 @@ public final class TotalIntegrationTest {
         assertTrue(registry.contains("makeBinary"), "should contain makeBinary");
         assertTrue(!registry.contains("nonExistingAction"), "should not contain unknown");
         System.out.println("[PASS] Action pattern parsing and registry");
+    }
+
+    // ── Lexer to Parser integration ──
+
+    private static void testLexerProducesTokens() throws Exception {
+        String source = "int main() { return 0; }";
+        List<Token> tokens = lexSource(source);
+
+        assertTrue(tokens.size() >= 4, "should produce multiple tokens");
+        // Last token should be EOF
+        assertEquals(TokenType.EOF, tokens.get(tokens.size() - 1).type().canonical(),
+                "last token should be EOF");
+        System.out.println("[PASS] Lexer produces tokens from source");
+    }
+
+    private static void testLexerToParserIntegration() throws Exception {
+        // Simple C99 program: int add(int x, int y) { return x + y; } int main() { return add(1, 2); }
+        String source = """
+                int add(int x, int y) { return x + y; }
+                int main() { return add(1, 2); }
+                """;
+
+        List<Token> tokens = lexSource(source);
+
+        // Parse with C99 grammar
+        SeuYaccGenerator generator;
+        try (Reader reader = new FileReader(grammarPath().toFile())) {
+            generator = new SeuYaccGenerator(reader, true);
+        }
+
+        ParserDriver driver = new ParserDriver(generator.getGrammar(), generator.getParseTable());
+        ParseResult parseResult = driver.parse(tokens);
+
+        assertTrue(parseResult.isAccepted(),
+                "Lexer→Parser integration should parse: " + parseResult.getErrorMessage());
+        assertNotNull(parseResult.getAstRoot(), "parse tree should not be null");
+        assertEquals("translation_unit", parseResult.getAstRoot().getSymbolName(),
+                "root should be translation_unit");
+
+        // Run semantic + IR pipeline
+        YaccIrBridge bridge = new YaccIrBridge();
+        IrGenerationResult ir = bridge.generate(parseResult);
+        String llvmText = new LlvmLikeTextEmitter().emit(ir);
+
+        assertTrue(llvmText.contains("define i32 @add"), "IR should contain add function");
+        assertTrue(llvmText.contains("define i32 @main"), "IR should contain main function");
+        assertTrue(llvmText.contains("call add"), "IR should contain function call");
+
+        System.out.println("[PASS] Lexer → Parser → Semantic → IR integration");
+    }
+
+    /**
+     * Tokenize source code string using GeneratedLexer.
+     */
+    private static List<Token> lexSource(String source) {
+        List<Token> tokens = new ArrayList<>();
+        GeneratedLexer lexer = new GeneratedLexer(new StringReader(source));
+        Token token;
+        while (true) {
+            token = lexer.nextToken();
+            tokens.add(token);
+            if (token.type() == TokenType.EOF) break;
+        }
+        return tokens;
     }
 
     // ── C99 full pipeline ──
