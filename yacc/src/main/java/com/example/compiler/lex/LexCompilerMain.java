@@ -30,10 +30,9 @@ public class LexCompilerMain {
         
         System.out.println("   子集构造法得到初始 DFA 状态总数: " + dfaStates.size());
         
-        // System.out.println(">>> 3.5. 最小化 DFA...");
-        // dfaStates = dfaConverter.minimize(dfaStates);
-        // System.out.println("   最小化后 DFA 状态总数: " + dfaStates.size());
-        System.out.println("   (跳过最小化，使用原始 DFA)");
+        System.out.println(">>> 3.5. 最小化 DFA...");
+        dfaStates = dfaConverter.minimize(dfaStates);
+        System.out.println("   最小化后 DFA 状态总数: " + dfaStates.size());
         
         System.out.println(">>> 4. 生成目标代码...");
         CodeGenerator generator = new CodeGenerator();

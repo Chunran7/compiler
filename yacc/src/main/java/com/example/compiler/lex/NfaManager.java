@@ -98,20 +98,6 @@ public class NfaManager {
 
         for (SeuLexParser.LexRule rule : rules) {
             try {
-                // 跳过否定字符集 [^...] —— 当前转换器不支持
-                if (rule.regex.contains("[^")) {
-                    System.out.println("跳过否定字符集规则: " + rule.regex);
-                    continue;
-                }
-                // 跳过浮点数/指数规则 —— 复杂正则导致 NFA/DFA 状态泄漏
-                // 含 "."" 的浮点规则，含 {E}/{P} 的指数规则
-                if ((rule.regex.contains("\".\"") && rule.regex.length() > 5)
-                        || rule.regex.contains("{E}")
-                        || rule.regex.contains("{P}")) {
-                    System.out.println("跳过浮点/指数规则: " + rule.regex);
-                    continue;
-                }
-
                 // 2. 正则 -> 后缀
                 String postfix = converter.convert(rule.regex);
 

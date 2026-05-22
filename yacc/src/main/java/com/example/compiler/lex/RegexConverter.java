@@ -52,6 +52,7 @@ public class RegexConverter {
 
     /**
      * 1. 处理字符集 [] -> (a|b|c)
+     * [^...] 取反字符集 -> 展开为补集（0x01-0x7E 范围内不在集合中的字符）
      */
     public String processCharSet(String regex) {
         StringBuilder result = new StringBuilder();
@@ -63,7 +64,14 @@ public class RegexConverter {
                 if (end == -1)
                     throw new RuntimeException("未闭合的字符集");
                 String content = regex.substring(i + 1, end);
-                result.append("(").append(expandCharRange(content)).append(")");
+
+                if (!content.isEmpty() && content.charAt(0) == '^') {
+                    // 否定字符集 [^...]
+                    String positiveContent = content.substring(1);
+                    result.append(expandNegatedCharRange(positiveContent));
+                } else {
+                    result.append("(").append(expandCharRange(content)).append(")");
+                }
                 i = end + 1;
             } else {
                 result.append(c);
@@ -107,19 +115,91 @@ public class RegexConverter {
     }
 
     /**
+     * 展开取反字符集 [^...]：收集排除字符集合，在 ASCII 可打印范围 0x01-0x7E 内取补集。
+     * 结果用括号包裹的 | 交替式表示，元字符加 \\ 转义。
+     */
+    private String expandNegatedCharRange(String content) {
+        Set<Character> excluded = new HashSet<>();
+
+        // 先收集所有被排除的字符（与 expandCharRange 相同的解析逻辑）
+        for (int i = 0; i < content.length(); i++) {
+            char ch = content.charAt(i);
+
+            if (ch == '\\' && i + 1 < content.length()) {
+                ch = resolveEscape(content.charAt(i + 1));
+                i++;
+            }
+
+            if (i + 2 < content.length() && content.charAt(i + 1) == '-') {
+                char end = content.charAt(i + 2);
+                if (end == '\\' && i + 3 < content.length()) {
+                    end = resolveEscape(content.charAt(i + 3));
+                    i++;
+                }
+                for (char c = ch; c <= end; c++) {
+                    excluded.add(c);
+                }
+                i += 2;
+            } else {
+                excluded.add(ch);
+            }
+        }
+
+        // 在 0x01-0x7E 范围内构建补集
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        boolean first = true;
+        for (char ch = 1; ch <= 0x7E; ch++) {
+            if (!excluded.contains(ch)) {
+                if (!first)
+                    sb.append(ALT);
+                // 对正则元字符加转义前缀，避免后续流程误读
+                if (isRegexMeta(ch)) {
+                    sb.append('\\');
+                }
+                sb.append(ch);
+                first = false;
+            }
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    /**
      * 2. 处理 + 和 ? (修正版)
      * a+ -> aa*
      * a? -> (a|ε)
+     *
+     * <p>必须在 processCharSet 之前运行，否则字符集展开后的字面量 +/? 会被误当作运算符。
+     * 同时跟踪方括号内/外状态，[] 内的 +/? 是字面量，不处理。
      */
     public String processPlusAndQuestion(String regex) {
         StringBuilder result = new StringBuilder();
+        boolean inCharClass = false;
         for (int i = 0; i < regex.length(); i++) {
             char c = regex.charAt(i);
-            if ((c == '+' || c == '?') && !isEscaped(regex, i)) {
+
+            // 跟踪字符集边界
+            if (c == '[' && !isEscaped(regex, i)) {
+                inCharClass = true;
+                result.append(c);
+                continue;
+            }
+            if (c == ']' && !isEscaped(regex, i) && inCharClass) {
+                inCharClass = false;
+                result.append(c);
+                continue;
+            }
+
+            if ((c == '+' || c == '?') && !isEscaped(regex, i) && !inCharClass) {
                 int lastIdx = result.length() - 1;
                 String target;
                 if (result.charAt(lastIdx) == ')') {
-                    int start = findMatchingBracket(result.toString(), lastIdx);
+                    int start = findMatchingBracket(result.toString(), lastIdx, '(', ')');
+                    target = result.substring(start);
+                    result.delete(start, result.length());
+                } else if (result.charAt(lastIdx) == ']') {
+                    int start = findMatchingBracket(result.toString(), lastIdx, '[', ']');
                     target = result.substring(start);
                     result.delete(start, result.length());
                 } else {
@@ -223,12 +303,12 @@ public class RegexConverter {
         return 0;
     }
 
-    private int findMatchingBracket(String str, int end) {
+    private int findMatchingBracket(String str, int end, char open, char close) {
         int count = 1;
         for (int i = end - 1; i >= 0; i--) {
-            if (str.charAt(i) == ')')
+            if (str.charAt(i) == close)
                 count++;
-            else if (str.charAt(i) == '(')
+            else if (str.charAt(i) == open)
                 count--;
             if (count == 0)
                 return i;
@@ -242,8 +322,10 @@ public class RegexConverter {
 
     public String convert(String regex) {
         String s0 = processQuotes(regex);
-        String s1 = processCharSet(s0);
-        String s2 = processPlusAndQuestion(s1);
+        // processPlusAndQuestion 必须在 processCharSet 之前：
+        // 否则字符集 [+\-*/] 展开为 (+|-|*|/) 后，字面量 +/? 会被误当作运算符
+        String s1 = processPlusAndQuestion(s0);
+        String s2 = processCharSet(s1);
         String s3 = insertConcatOperator(s2);
         String s4 = toPostfix(s3);
         return resolveEscapes(s4);
