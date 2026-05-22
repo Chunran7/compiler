@@ -1,5 +1,6 @@
 package com.example.compiler.test;
 
+import com.example.compiler.Compiler;
 import com.example.compiler.ir.IrGenerationResult;
 import com.example.compiler.ir.LlvmLikeTextEmitter;
 import com.example.compiler.ir.YaccIrBridge;
@@ -22,7 +23,6 @@ import com.example.compiler.yacc.token.Token;
 import com.example.compiler.yacc.token.TokenType;
 
 import com.example.compiler.lex.GeneratedLexer;
-import com.example.compiler.yacc.token.Token;
 
 import java.io.FileReader;
 import java.io.Reader;
@@ -30,7 +30,13 @@ import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public final class TotalIntegrationTest {
     public static void main(String[] args) throws Exception {
@@ -39,9 +45,12 @@ public final class TotalIntegrationTest {
         testLalrStateMerging();
         testConflictReporting();
         testActionPatternParsingAndRegistry();
-        testLexerProducesTokens();
-        testLexerToParserIntegration();
-        testC99Pipeline();
+        testC99LexerSpecTokenCoverage();
+        testC99LexerToParserIntegration();
+        testC99ParserOnlySamplesAndProductionCoverage();
+        testMiniCSubsetSemanticIrPipeline();
+        testGeneratedCSemanticProgramPipeline();
+        testGeneratedExecutablePipeline();
         testAstMarkdownEmission();
         testDuplicateDeclaration();
         testUndeclaredUse();
@@ -82,7 +91,7 @@ public final class TotalIntegrationTest {
 
     private static void testOperatorPrecedenceGrammar() throws Exception {
         SeuYaccGenerator generator;
-        try (Reader reader = new FileReader(Path.of("resources", "expr_precedence.y").toFile())) {
+        try (Reader reader = new FileReader(testGrammarPath("expr_precedence.y").toFile())) {
             generator = new SeuYaccGenerator(reader, false);
         }
         ParserDriver driver = new ParserDriver(generator.getGrammar(), generator.getParseTable());
@@ -97,11 +106,11 @@ public final class TotalIntegrationTest {
     private static void testLalrStateMerging() throws Exception {
         int lr1States;
         int lalrStates;
-        try (Reader reader = new FileReader(Path.of("resources", "lalr_core_merge.y").toFile())) {
+        try (Reader reader = new FileReader(testGrammarPath("lalr_core_merge.y").toFile())) {
             SeuYaccGenerator lr1Generator = new SeuYaccGenerator(reader, false);
             lr1States = lr1Generator.getCollection().states().size();
         }
-        try (Reader reader = new FileReader(Path.of("resources", "lalr_core_merge.y").toFile())) {
+        try (Reader reader = new FileReader(testGrammarPath("lalr_core_merge.y").toFile())) {
             SeuYaccGenerator lalrGenerator = new SeuYaccGenerator(reader, true);
             lalrStates = lalrGenerator.getCollection().states().size();
             ParserDriver driver = new ParserDriver(lalrGenerator.getGrammar(), lalrGenerator.getParseTable());
@@ -168,20 +177,45 @@ public final class TotalIntegrationTest {
         System.out.println("[PASS] Action pattern parsing and registry");
     }
 
-    // ── Lexer to Parser integration ──
+    // ── C99 lexer/parser coverage ──
 
-    private static void testLexerProducesTokens() throws Exception {
-        String source = "int main() { return 0; }";
-        List<Token> tokens = lexSource(source);
+    private static void testC99LexerSpecTokenCoverage() {
+        Map<TokenType, String> samples = c99LexerTokenSamples();
+        Set<TokenType> covered = EnumSet.noneOf(TokenType.class);
 
-        assertTrue(tokens.size() >= 4, "should produce multiple tokens");
-        // Last token should be EOF
+        for (Map.Entry<TokenType, String> entry : samples.entrySet()) {
+            Token token = firstToken(entry.getValue());
+            assertEquals(entry.getKey(), token.type().canonical(),
+                    "lexer sample should produce " + entry.getKey() + " from " + entry.getValue());
+            covered.add(token.type().canonical());
+        }
+
+        Set<TokenType> expected = EnumSet.allOf(TokenType.class);
+        expected.remove(TokenType.EOF);
+        expected.remove(TokenType.TYPE_NAME); // c99.l documents check_type() as always returning IDENTIFIER here.
+        expected.removeIf(TokenType::isAlias);
+
+        Set<TokenType> missing = new LinkedHashSet<>(expected);
+        missing.removeAll(covered);
+        assertTrue(missing.isEmpty(), "c99.l token sample coverage missing: " + missing);
+
+        List<Token> tokens = lexSource("int main() { return 0; }");
         assertEquals(TokenType.EOF, tokens.get(tokens.size() - 1).type().canonical(),
                 "last token should be EOF");
-        System.out.println("[PASS] Lexer produces tokens from source");
+        assertEquals(TokenType.INT, firstToken("/* block comment */ int").type().canonical(),
+                "block comments should be skipped");
+        assertEquals(TokenType.INT, firstToken("// line comment\nint").type().canonical(),
+                "line comments should be skipped");
+        assertEquals(TokenType.LBRACE, firstToken("<%").type().canonical(), "digraph <% should map to {");
+        assertEquals(TokenType.RBRACE, firstToken("%>").type().canonical(), "digraph %> should map to }");
+        assertEquals(TokenType.LBRACKET, firstToken("<:").type().canonical(), "digraph <: should map to [");
+        assertEquals(TokenType.RBRACKET, firstToken(":>").type().canonical(), "digraph :> should map to ]");
+
+        System.out.println("[PASS] C99 lexer token coverage (" + covered.size()
+                + "/" + expected.size() + ", TYPE_NAME requires typedef-name tracking)");
     }
 
-    private static void testLexerToParserIntegration() throws Exception {
+    private static void testC99LexerToParserIntegration() throws Exception {
         // Simple C99 program: int add(int x, int y) { return x + y; } int main() { return add(1, 2); }
         String source = """
                 int add(int x, int y) { return x + y; }
@@ -212,9 +246,33 @@ public final class TotalIntegrationTest {
 
         assertTrue(llvmText.contains("define i32 @add"), "IR should contain add function");
         assertTrue(llvmText.contains("define i32 @main"), "IR should contain main function");
-        assertTrue(llvmText.contains("call add"), "IR should contain function call");
+        assertTrue(llvmText.contains("call i32 @add"), "IR should contain function call");
 
-        System.out.println("[PASS] Lexer → Parser → Semantic → IR integration");
+        System.out.println("[PASS] C99 lexer/parser → MiniC semantic/IR integration");
+    }
+
+    private static void testC99ParserOnlySamplesAndProductionCoverage() throws Exception {
+        SeuYaccGenerator generator;
+        try (Reader reader = new FileReader(grammarPath().toFile())) {
+            generator = new SeuYaccGenerator(reader, true);
+        }
+
+        ParserDriver driver = new ParserDriver(generator.getGrammar(), generator.getParseTable());
+        Set<Integer> coveredProductions = new HashSet<>();
+
+        for (String source : c99ParserOnlySamples()) {
+            ParseResult parseResult = driver.parse(lexSource(source));
+            assertTrue(parseResult.isAccepted(),
+                    "C99 parser-only sample should parse:\n" + source + "\n" + parseResult.getErrorMessage());
+            coveredProductions.addAll(parseResult.getReductions());
+        }
+
+        int totalProductions = generator.getGrammar().getProductions().size();
+        assertTrue(!coveredProductions.isEmpty(), "parser-only samples should reduce at least one production");
+
+        System.out.println("[PASS] C99 lexer + yacc parser-only samples (production coverage "
+                + coveredProductions.size() + "/" + totalProductions
+                + "; semantic/IR intentionally not run for full C99 samples)");
     }
 
     /**
@@ -232,9 +290,9 @@ public final class TotalIntegrationTest {
         return tokens;
     }
 
-    // ── C99 full pipeline ──
+    // ── MiniC semantic/IR subset pipeline ──
 
-    private static void testC99Pipeline() throws Exception {
+    private static void testMiniCSubsetSemanticIrPipeline() throws Exception {
         SeuYaccGenerator generator;
         try (Reader reader = new FileReader(grammarPath().toFile())) {
             generator = new SeuYaccGenerator(reader, true);
@@ -254,7 +312,7 @@ public final class TotalIntegrationTest {
         assertTrue(semanticResult.symbolTable().getAllSymbols().size() >= 2,
                 "symbol table should contain functions");
         assertTrue(!semanticResult.preliminaryIr().isEmpty(),
-                "semantic engine should emit preliminary TAC");
+                "runtime semantic translation should emit three-address IR");
 
         IrGenerationResult ir = bridge.generate(parseResult);
         String llvmText = new LlvmLikeTextEmitter().emit(ir);
@@ -262,11 +320,59 @@ public final class TotalIntegrationTest {
         assertTrue(ir.getInstructions().size() > 0, "IR should not be empty");
         assertTrue(llvmText.contains("define i32 @add"), "IR should contain add function");
         assertTrue(llvmText.contains("define i32 @main"), "IR should contain main function");
-        assertTrue(llvmText.contains("call add"), "IR should contain function call");
-        assertTrue(llvmText.contains("ifFalse") || llvmText.contains("goto"),
-                "IR should contain control-flow");
+        assertTrue(llvmText.contains("call i32 @add"), "IR should contain function call");
+        assertTrue(llvmText.contains("br i1") || llvmText.contains("br label"),
+                "IR should contain LLVM branch control-flow");
 
-        System.out.println("[PASS] C99 Yacc + Semantic + IR pipeline");
+        System.out.println("[PASS] C99 parser + MiniC semantic/IR subset pipeline");
+    }
+
+    private static void testGeneratedCSemanticProgramPipeline() throws Exception {
+        String source = """
+                int add(int x, int y) { return x + y; }
+                int main() { return add(3, 4); }
+                """;
+
+        var result = new Compiler().compileViaGeneratedC(source);
+        assertTrue(result.isSuccess(), "generated C semantic route should parse successfully");
+        String irText = result.irText();
+
+        assertTrue(irText.contains("; generated by yysemantic.c"),
+                "IR should be produced by generated C semantic program");
+        assertTrue(irText.contains("define i32 @add(i32 %x, i32 %y)"),
+                "generated C semantic program should emit function signature");
+        assertTrue(irText.contains("call i32 @add"),
+                "generated C semantic program should emit function call");
+        assertTrue(Files.exists(Path.of("generated", "semantic", "yysemantic.c")),
+                "generated C semantic source should be materialized");
+
+        System.out.println("[PASS] Generated C semantic program → LLVM IR text pipeline");
+    }
+
+    private static void testGeneratedExecutablePipeline() throws Exception {
+        String source = """
+                int add(int x, int y) { return x + y; }
+                int main() { return add(3, 4); }
+                """;
+
+        Path llFile = Path.of("generated", "final", "program.ll");
+        Path executable = Path.of("generated", "final", "program.exe");
+        var result = new Compiler().compileViaGeneratedC(
+                new StringReader(source),
+                Path.of("generated", "semantic"),
+                llFile,
+                executable
+        );
+
+        assertTrue(result.isSuccess(), "generated executable route should parse successfully");
+        assertTrue(Files.exists(llFile), "LLVM IR file should be written");
+        assertTrue(Files.exists(executable), "executable file should be written");
+
+        Process process = new ProcessBuilder(executable.toAbsolutePath().toString()).start();
+        int exit = process.waitFor();
+        assertEquals(7, exit, "generated executable should return add(3, 4)");
+
+        System.out.println("[PASS] LLVM IR text → executable pipeline");
     }
 
     // ── Markdown emission ──
@@ -393,8 +499,167 @@ public final class TotalIntegrationTest {
         return tokens;
     }
 
+    private static Map<TokenType, String> c99LexerTokenSamples() {
+        Map<TokenType, String> samples = new LinkedHashMap<>();
+
+        samples.put(TokenType.AUTO, "auto");
+        samples.put(TokenType.BOOL, "_Bool");
+        samples.put(TokenType.BREAK, "break");
+        samples.put(TokenType.CASE, "case");
+        samples.put(TokenType.CHAR, "char");
+        samples.put(TokenType.COMPLEX, "_Complex");
+        samples.put(TokenType.CONST, "const");
+        samples.put(TokenType.CONTINUE, "continue");
+        samples.put(TokenType.DEFAULT, "default");
+        samples.put(TokenType.DO, "do");
+        samples.put(TokenType.DOUBLE, "double");
+        samples.put(TokenType.ELSE, "else");
+        samples.put(TokenType.ENUM, "enum");
+        samples.put(TokenType.EXTERN, "extern");
+        samples.put(TokenType.FLOAT, "float");
+        samples.put(TokenType.FOR, "for");
+        samples.put(TokenType.GOTO, "goto");
+        samples.put(TokenType.IF, "if");
+        samples.put(TokenType.IMAGINARY, "_Imaginary");
+        samples.put(TokenType.INLINE, "inline");
+        samples.put(TokenType.INT, "int");
+        samples.put(TokenType.LONG, "long");
+        samples.put(TokenType.REGISTER, "register");
+        samples.put(TokenType.RESTRICT, "restrict");
+        samples.put(TokenType.RETURN, "return");
+        samples.put(TokenType.SHORT, "short");
+        samples.put(TokenType.SIGNED, "signed");
+        samples.put(TokenType.SIZEOF, "sizeof");
+        samples.put(TokenType.STATIC, "static");
+        samples.put(TokenType.STRUCT, "struct");
+        samples.put(TokenType.SWITCH, "switch");
+        samples.put(TokenType.TYPEDEF, "typedef");
+        samples.put(TokenType.UNION, "union");
+        samples.put(TokenType.UNSIGNED, "unsigned");
+        samples.put(TokenType.VOID, "void");
+        samples.put(TokenType.VOLATILE, "volatile");
+        samples.put(TokenType.WHILE, "while");
+
+        samples.put(TokenType.IDENTIFIER, "identifier_1");
+        samples.put(TokenType.CONSTANT, "0x1p5");
+        samples.put(TokenType.STRING_LITERAL, "\"hello\"");
+        samples.put(TokenType.ELLIPSIS, "...");
+
+        samples.put(TokenType.RIGHT_ASSIGN, ">>=");
+        samples.put(TokenType.LEFT_ASSIGN, "<<=");
+        samples.put(TokenType.ADD_ASSIGN, "+=");
+        samples.put(TokenType.SUB_ASSIGN, "-=");
+        samples.put(TokenType.MUL_ASSIGN, "*=");
+        samples.put(TokenType.DIV_ASSIGN, "/=");
+        samples.put(TokenType.MOD_ASSIGN, "%=");
+        samples.put(TokenType.AND_ASSIGN, "&=");
+        samples.put(TokenType.XOR_ASSIGN, "^=");
+        samples.put(TokenType.OR_ASSIGN, "|=");
+        samples.put(TokenType.RIGHT_OP, ">>");
+        samples.put(TokenType.LEFT_OP, "<<");
+        samples.put(TokenType.INC_OP, "++");
+        samples.put(TokenType.DEC_OP, "--");
+        samples.put(TokenType.PTR_OP, "->");
+        samples.put(TokenType.AND_OP, "&&");
+        samples.put(TokenType.OR_OP, "||");
+        samples.put(TokenType.LE_OP, "<=");
+        samples.put(TokenType.GE_OP, ">=");
+        samples.put(TokenType.EQ_OP, "==");
+        samples.put(TokenType.NE_OP, "!=");
+
+        samples.put(TokenType.SEMI, ";");
+        samples.put(TokenType.LBRACE, "{");
+        samples.put(TokenType.RBRACE, "}");
+        samples.put(TokenType.COMMA, ",");
+        samples.put(TokenType.COLON, ":");
+        samples.put(TokenType.ASSIGN, "=");
+        samples.put(TokenType.LPAREN, "(");
+        samples.put(TokenType.RPAREN, ")");
+        samples.put(TokenType.LBRACKET, "[");
+        samples.put(TokenType.RBRACKET, "]");
+        samples.put(TokenType.DOT, ".");
+        samples.put(TokenType.AMPERSAND, "&");
+        samples.put(TokenType.BANG, "!");
+        samples.put(TokenType.TILDE, "~");
+        samples.put(TokenType.MINUS, "-");
+        samples.put(TokenType.PLUS, "+");
+        samples.put(TokenType.STAR, "*");
+        samples.put(TokenType.SLASH, "/");
+        samples.put(TokenType.PERCENT, "%");
+        samples.put(TokenType.LT, "<");
+        samples.put(TokenType.GT, ">");
+        samples.put(TokenType.CARET, "^");
+        samples.put(TokenType.PIPE, "|");
+        samples.put(TokenType.QUESTION, "?");
+
+        return samples;
+    }
+
+    private static List<String> c99ParserOnlySamples() {
+        return List.of(
+                """
+                int main() {
+                    return 0;
+                }
+                """,
+                """
+                static const int values[3] = {1, 2, 3};
+                int sum(int a, int b) {
+                    int i = 0;
+                    int total = 0;
+                    for (i = 0; i < 3; i = i + 1) {
+                        total += values[i];
+                    }
+                    return total + a + b;
+                }
+                """,
+                """
+                struct Point { int x; int y; };
+                union Value { int i; float f; };
+                enum Color { RED, GREEN = 2, BLUE };
+                int pick(enum Color c) {
+                    switch (c) {
+                    case RED:
+                        return 1;
+                    default:
+                        return 0;
+                    }
+                }
+                """,
+                """
+                int control(int x) {
+                again:
+                    do {
+                        x--;
+                        if (x == 2) continue;
+                        if (x == 1) break;
+                    } while (x > 0);
+                    goto done;
+                done:
+                    return x;
+                }
+                """,
+                """
+                inline int call(int (*fn)(int), int value) {
+                    return fn(value);
+                }
+                int arrays(int a[static const 3], int n) {
+                    return sizeof(a[0]) + n;
+                }
+                """
+        );
+    }
+
+    private static Token firstToken(String source) {
+        return lexSource(source).get(0);
+    }
+
     private static Path grammarPath() {
         return Path.of("resources", "c99.y");
+    }
+
+    private static Path testGrammarPath(String fileName) {
+        return Path.of("src", "test", "resources", "grammars", fileName);
     }
 
     private static void assertTrue(boolean value, String message) {

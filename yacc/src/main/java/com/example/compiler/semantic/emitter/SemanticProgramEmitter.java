@@ -115,7 +115,7 @@ public final class SemanticProgramEmitter {
         sb.append("        IrGenerator irGenerator = new IrGenerator();\n");
         sb.append("        IrGenerationResult ir = irGenerator.generate(semanticResult);\n\n");
 
-        sb.append("        System.out.println(\"=== LLVM-LIKE IR ===\");\n");
+        sb.append("        System.out.println(\"=== LLVM IR TEXT SUBSET ===\");\n");
         sb.append("        System.out.println(new LlvmLikeTextEmitter().emit(ir));\n");
         sb.append("    }\n");
     }

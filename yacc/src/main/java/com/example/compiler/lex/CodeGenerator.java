@@ -95,6 +95,24 @@ public class CodeGenerator {
         
         // 5. nextToken
         sb.append("    public Token nextToken() {\n");
+        sb.append("        int first = input();\n");
+        sb.append("        if (first == '/') {\n");
+        sb.append("            int second = input();\n");
+        sb.append("            if (second == '*') {\n");
+        sb.append("                comment();\n");
+        sb.append("                return nextToken();\n");
+        sb.append("            }\n");
+        sb.append("            if (second == '/') {\n");
+        sb.append("                skipLineComment();\n");
+        sb.append("                return nextToken();\n");
+        sb.append("            }\n");
+        sb.append("            if (second != -1) {\n");
+        sb.append("                ungetc(second);\n");
+        sb.append("            }\n");
+        sb.append("            ungetc(first);\n");
+        sb.append("        } else if (first != -1) {\n");
+        sb.append("            ungetc(first);\n");
+        sb.append("        }\n\n");
         sb.append("        int state = 0;\n");
         sb.append("        int last_accept_state = -1;\n");
         sb.append("        int last_accept_len = 0;\n");
@@ -160,6 +178,13 @@ public class CodeGenerator {
         sb.append("            prev = c;\n");
         sb.append("        }\n");
         sb.append("        error(\"unterminated comment\");\n");
+        sb.append("    }\n\n");
+
+        sb.append("    private void skipLineComment() {\n");
+        sb.append("        int c;\n");
+        sb.append("        while ((c = input()) != -1 && c != 0) {\n");
+        sb.append("            if (c == '\\n') return;\n");
+        sb.append("        }\n");
         sb.append("    }\n\n");
 
         sb.append("    private Token check_type() {\n");

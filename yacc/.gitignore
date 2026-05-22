@@ -11,19 +11,17 @@ out/
 # Logs
 *.log
 
-# OS
+# OS generated files
 .DS_Store
 Thumbs.db
 
-# Build / generated runtime artifacts
-out/
-generated-classes/
+# Java build artifacts
 *.class
+generated-classes/
 
-# Test/runtime generated files
+# Generated test/runtime files
 generated/sample.tokens
-
-
-# If generated parser/semantic programs are only build artifacts, ignore them too:
 generated/YYParseProgram.java
 generated/YYSemanticProgram.java
+generated/semantic/
+generated/final/

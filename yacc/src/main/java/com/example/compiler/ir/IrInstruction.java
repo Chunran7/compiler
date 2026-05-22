@@ -1,52 +1,67 @@
 package com.example.compiler.ir;
 
+import java.util.List;
+
 public final class IrInstruction {
     private final IrOp op;
     private final String result;
     private final String arg1;
     private final String arg2;
+    private final List<String> values;
 
-    private IrInstruction(IrOp op, String result, String arg1, String arg2) {
+    private IrInstruction(IrOp op, String result, String arg1, String arg2, List<String> values) {
         this.op = op;
         this.result = result;
         this.arg1 = arg1;
         this.arg2 = arg2;
+        this.values = values == null ? List.of() : List.copyOf(values);
     }
 
     public static IrInstruction functionBegin(String name) {
-        return new IrInstruction(IrOp.FUNCTION_BEGIN, name, null, null);
+        return functionBegin(name, List.of());
+    }
+
+    public static IrInstruction functionBegin(String name, List<String> parameterNames) {
+        return new IrInstruction(IrOp.FUNCTION_BEGIN, name, null, null, parameterNames);
     }
 
     public static IrInstruction functionEnd(String name) {
-        return new IrInstruction(IrOp.FUNCTION_END, name, null, null);
+        return new IrInstruction(IrOp.FUNCTION_END, name, null, null, null);
     }
 
     public static IrInstruction assign(String target, String value) {
-        return new IrInstruction(IrOp.ASSIGN, target, value, null);
+        return new IrInstruction(IrOp.ASSIGN, target, value, null, null);
     }
 
     public static IrInstruction call(String target, String functionName, String argsText) {
-        return new IrInstruction(IrOp.CALL, target, functionName, argsText);
+        List<String> args = argsText == null || argsText.isBlank()
+                ? List.of()
+                : List.of(argsText.split("\\s*,\\s*"));
+        return call(target, functionName, args);
+    }
+
+    public static IrInstruction call(String target, String functionName, List<String> args) {
+        return new IrInstruction(IrOp.CALL, target, functionName, String.join(", ", args), args);
     }
 
     public static IrInstruction binary(IrOp op, String target, String left, String right) {
-        return new IrInstruction(op, target, left, right);
+        return new IrInstruction(op, target, left, right, null);
     }
 
     public static IrInstruction label(String label) {
-        return new IrInstruction(IrOp.LABEL, label, null, null);
+        return new IrInstruction(IrOp.LABEL, label, null, null, null);
     }
 
     public static IrInstruction goTo(String label) {
-        return new IrInstruction(IrOp.GOTO, label, null, null);
+        return new IrInstruction(IrOp.GOTO, label, null, null, null);
     }
 
     public static IrInstruction ifFalseGoTo(String condition, String label) {
-        return new IrInstruction(IrOp.IF_FALSE_GOTO, label, condition, null);
+        return new IrInstruction(IrOp.IF_FALSE_GOTO, label, condition, null, null);
     }
 
     public static IrInstruction ret(String value) {
-        return new IrInstruction(IrOp.RETURN, null, value, null);
+        return new IrInstruction(IrOp.RETURN, null, value, null, null);
     }
 
     public IrOp getOp() {
@@ -63,6 +78,10 @@ public final class IrInstruction {
 
     public String getArg2() {
         return arg2;
+    }
+
+    public List<String> getValues() {
+        return values;
     }
 
     public boolean isLabel() {

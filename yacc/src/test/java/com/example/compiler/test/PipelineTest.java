@@ -42,7 +42,7 @@ public final class PipelineTest {
 
         assertContains(ir, "define i32 @add", "add 函数定义");
         assertContains(ir, "define i32 @main", "main 函数定义");
-        assertContains(ir, "return", "return 语句");
+        assertContains(ir, "ret i32", "return 语句");
 
         System.out.println("  PASS\n");
     }
@@ -64,7 +64,7 @@ public final class PipelineTest {
 
         assertContains(ir, "define i32 @calc", "calc 函数定义");
         assertContains(ir, "define i32 @main", "main 函数定义");
-        assertContains(ir, "return", "return 语句");
+        assertContains(ir, "ret i32", "return 语句");
 
         System.out.println("  PASS\n");
     }
@@ -86,7 +86,7 @@ public final class PipelineTest {
 
         assertContains(ir, "define i32 @add", "add 函数");
         assertContains(ir, "define i32 @main", "main 函数");
-        assertContains(ir, "call add", "add 调用（至少一处）");
+        assertContains(ir, "call i32 @add", "add 调用（至少一处）");
 
         System.out.println("  PASS\n");
     }
