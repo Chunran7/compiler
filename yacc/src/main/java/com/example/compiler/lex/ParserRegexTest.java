@@ -8,7 +8,8 @@ import java.util.*;
  */
 public class ParserRegexTest {
 
-    private static final String TEST_FILE_PATH = "lex/c99.l";
+    // C99 词法文件路径配置
+    private static final String TEST_FILE_PATH = "resources/c99.l";
 
     public static void main(String[] args) {
         System.out.println("╔════════════════════════════════════════════════╗");

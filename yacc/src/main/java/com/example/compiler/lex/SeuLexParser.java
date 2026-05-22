@@ -11,7 +11,7 @@ import com.example.compiler.yacc.token.TokenType;
 public class SeuLexParser {
 
     // C99 词法文件路径配置
-    private static final String LEX_FILE_PATH = "resources/c99.l";
+    private static final String LEX_FILE_PATH = "yacc/resources/c99.l";
 
     // 内部类：存储 RE-Action 对
     public static class LexRule {
@@ -76,6 +76,7 @@ public class SeuLexParser {
         String[] sections = fullContent.split("(?m)^%%\\s*");
         // (?m)多行模式，^ 表示行首，\\s* 表示任意空白字符
 
+        // trim()表示去掉首尾空白
         if (sections.length >= 1)
             definitionPart = sections[0].trim();
         if (sections.length >= 2)
@@ -89,21 +90,19 @@ public class SeuLexParser {
      */
     public void parseDefinitions() {
         String[] lines = definitionPart.split("\n");
-        Pattern defPattern = Pattern.compile("^([A-Z_][A-Z0-9_]*)\\s+(.+)$");
-        // 第一段：^([A-Z_][A-Z0-9_]*) - 捕获宏名称，第二段：\\s+ - 匹配分隔符，第三段：(.+)$ - 捕获翻译内容
+        // 匹配宏定义格式：名称（字母/下划线开头）+ 空白分隔符 + 翻译内容
+        Pattern defPattern = Pattern.compile("^([a-zA-Z_][a-zA-Z0-9_]*)\\s+(.+)$");
 
-        // 匹配 C 风格注释的正则
-        Pattern commentPattern = Pattern.compile("/\\*.*?\\*/|//.*$");
-
+        // 第一阶段：收集所有原始定义（未展开）
+        Map<String, String> rawDefs = new LinkedHashMap<>();
         for (String line : lines) {
-            line = line.trim();// 去掉行首尾空白
-            if (line.isEmpty() || line.startsWith("%")) // 跳过空行和%{ %}开头的
+            line = line.trim(); // 去掉行首尾空白
+            if (line.isEmpty() || line.startsWith("%")) // 跳过空行和 %{ %} 开头的行
                 continue;
 
-            // 检查格式是否匹配正则定义的规范
+            // 检查格式是否匹配宏定义的规范
             Matcher m = defPattern.matcher(line);
             if (m.find()) {
-
                 // 分别获取宏名称和翻译内容
                 String name = m.group(1);
                 String translation = m.group(2);
@@ -111,27 +110,37 @@ public class SeuLexParser {
                 // 去掉翻译部分的注释
                 translation = removeComments(translation).trim();
 
-                // 存入 Map 前执行宏展开
-                String expanded = expandMacros(translation);
-                regularDefs.put(name, expanded);
+                // 先存入原始定义，暂不展开
+                rawDefs.put(name, translation);
             }
+        }
+
+        // 第二阶段：基于完整定义集合统一展开所有宏，防止因宏定义先后问题导致有些宏未被正确展开
+        for (Map.Entry<String, String> entry : rawDefs.entrySet()) {
+            String expanded = expandMacros(entry.getValue(), rawDefs);
+            regularDefs.put(entry.getKey(), expanded);
         }
     }
 
     /**
      * 递归替换宏引用，例如将 {D} 替换为 [0-9]
+     * 
+     * @param input   待展开的字符串
+     * @param allDefs 完整的宏定义集合（用于查找所有宏）
+     * @return 展开后的字符串
      */
-    private String expandMacros(String input) {
+    private String expandMacros(String input, Map<String, String> allDefs) {
         String result = input;
         boolean changed;
+        int iterations = 0;
 
         // 不断替换宏引用直到没有可以替换的为止
         do {
             changed = false;
-            for (Map.Entry<String, String> entry : regularDefs.entrySet()) {
+            for (Map.Entry<String, String> entry : allDefs.entrySet()) {
                 // entry.getKey() 是宏名称，entry.getValue() 是宏定义的内容
                 String macro = "{" + entry.getKey() + "}";
-                // macro一定是以 { 开头，} 结尾的字符串，区分于正常字符
+                // macro 一定是以 { 开头，} 结尾的字符串，区分于正常字符
 
                 if (result.contains(macro)) {
                     // 使用括号包裹以维持优先级
@@ -139,8 +148,19 @@ public class SeuLexParser {
                     changed = true;
                 }
             }
+            iterations++;
+            if (iterations > 50) {
+                throw new RuntimeException("宏展开失败：可能存在循环引用或嵌套过深");
+            }
         } while (changed); // 处理嵌套定义
         return result;
+    }
+
+    /**
+     * 重载方法：兼容旧代码调用（使用全局 regularDefs）
+     */
+    private String expandMacros(String input) {
+        return expandMacros(input, regularDefs);
     }
 
     /**
@@ -181,6 +201,9 @@ public class SeuLexParser {
                 String re = line.substring(0, splitIdx).trim();
                 String action = line.substring(splitIdx).trim();
 
+                // 去掉动作部分的注释
+                action = removeComments(action).trim();
+
                 // 对规则中的宏进行最终展开
                 String fullRegex = expandMacros(re);
                 // 将 C 风格 action 翻译为 Java 代码
@@ -197,21 +220,23 @@ public class SeuLexParser {
     /**
      * 将 c99.l 中的 C 风格 action 翻译为 Java 代码。
      *
-     * <p>处理两种 return 模式：
+     * <p>
+     * 处理两种 return 模式：
      * <ul>
-     *   <li>{@code return(TOKEN_NAME)} → {@code return new Token(TokenType.TOKEN_NAME, new String(yytext, 0, yyleng))}</li>
-     *   <li>{@code return('c')} → {@code return new Token(TokenType.forChar('c'), new String(yytext, 0, yyleng))}</li>
+     * <li>{@code return(TOKEN_NAME)} →
+     * {@code return new Token(TokenType.TOKEN_NAME, new String(yytext, 0, yyleng))}</li>
+     * <li>{@code return('c')} →
+     * {@code return new Token(TokenType.forChar('c'), new String(yytext, 0, yyleng))}</li>
      * </ul>
      * 其他内容保持原样。
      * </p>
      */
     public static String translateAction(String action) {
         // 1. 翻译 return(大写_TOKEN) → return new Token(TokenType.TOKEN, ...)
-        //    只匹配大写字母和下划线开头的 token 名，避免误匹配 check_type() 这种小写函数
+        // 只匹配大写字母和下划线开头的 token 名，避免误匹配 check_type() 这种小写函数
         action = action.replaceAll(
-            "return\\(([A-Z_][A-Z_0-9]*)\\)",
-            "return new Token(TokenType.$1, new String(yytext, 0, yyleng))"
-        );
+                "return\\(([A-Z_][A-Z_0-9]*)\\)",
+                "return new Token(TokenType.$1, new String(yytext, 0, yyleng))");
 
         // 2. 翻译 return('c') → return new Token(TokenType.forChar('c'), ...)
         Pattern charRetPattern = Pattern.compile("return\\('(.)'\\)");
@@ -222,7 +247,7 @@ public class SeuLexParser {
             // 对特殊字符转义
             String escaped = ch.equals("'") ? "\\'" : ch;
             m.appendReplacement(sb,
-                "return new Token(TokenType.forChar('" + escaped + "'), new String(yytext, 0, yyleng))");
+                    "return new Token(TokenType.forChar('" + escaped + "'), new String(yytext, 0, yyleng))");
         }
         m.appendTail(sb);
 
@@ -237,12 +262,18 @@ public class SeuLexParser {
         rules.forEach(System.out::println);
     }
 
+    /**
+     * 测试主函数 - 演示解析流程
+     */
     public static void main(String[] args) {
         SeuLexParser parser = new SeuLexParser();
 
         try {
-            // 读取 c99.l 文件内容
-            String content = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(LEX_FILE_PATH)));
+            // 读取 c99.l 文件内容（使用绝对路径）
+            String lexFilePath = LEX_FILE_PATH;
+            System.out.println("正在读取文件: " + lexFilePath);
+
+            String content = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(lexFilePath)));
 
             System.out.println("=== 原始文件内容前 200 字符 ===");
             System.out.println(content.substring(0, Math.min(200, content.length())));

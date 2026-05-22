@@ -4,8 +4,13 @@ import java.util.*;
 import java.nio.file.*;
 
 public class LexCompilerMain {
+    // C99 词法文件路径配置
+    private static final String LEX_FILE_PATH = "resources/c99.l";
+    // 生成的词法分析器输出路径
+    private static final String OUTPUT_LEXER_PATH = "src/main/java/com/example/compiler/lex/GeneratedLexer.java";
+    
     public static void main(String[] args) throws Exception {
-        String lexFile = "resources/c99.l";
+        String lexFile = LEX_FILE_PATH;
         if (args.length > 0) {
             lexFile = args[0];
         }
@@ -38,7 +43,7 @@ public class LexCompilerMain {
         CodeGenerator generator = new CodeGenerator();
         String javaCode = generator.generateJava(dfaStates, rules, parser.getDefinitionPart(), parser.getUserSubroutinePart());
         
-        Files.write(Paths.get("src/main/java/com/example/compiler/lex/GeneratedLexer.java"), javaCode.getBytes());
+        Files.write(Paths.get(OUTPUT_LEXER_PATH), javaCode.getBytes());
         System.out.println("   完成！已生成 GeneratedLexer.java");
     }
 }
