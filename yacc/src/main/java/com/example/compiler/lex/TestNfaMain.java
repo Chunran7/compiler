@@ -12,10 +12,8 @@ public class TestNfaMain {
         NfaManager manager = new NfaManager();
         NfaState globalStart = manager.buildCombinedNfa(rules);
 
-        // 使用现有的 NfaBuilder 的打印方法查看合并后的 NFA
-        NfaBuilder printer = new NfaBuilder();
         System.out.println("===== 合并后的 NFA =====");
-        printer.printNfa(globalStart);
+        NfaManager.printNfa(globalStart);
 
         // 启动 NFA -> DFA 转换
         System.out.println("\n>>> 开始 NFA 到 DFA 的确定化...\n");

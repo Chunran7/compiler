@@ -42,6 +42,7 @@ public class NfaManager {
                 }
             }
             return stack.pop();
+            // 一条postfix表达式会构建一个NFA片段
         }
 
         private NfaState createNode() {
@@ -119,5 +120,28 @@ public class NfaManager {
 
         System.out.println("合并完成。总状态数: " + globalStateCounter);
         return globalStart;
+    }
+
+    /**
+     * 打印 NFA 的所有状态转移（调试用）
+     */
+    public static void printNfa(NfaState start) {
+        Set<NfaState> visited = new HashSet<>();
+        Queue<NfaState> queue = new LinkedList<>();
+        queue.add(start);
+        visited.add(start);
+
+        System.out.println("=== NFA 状态转移表 ===");
+        while (!queue.isEmpty()) {
+            NfaState current = queue.poll();
+            for (NfaState next : current.nextStates) {
+                System.out.printf("State %d --(%c)--> State %d %s\n",
+                        current.id, current.transition, next.id, next.isAccept ? "[ACCEPT]" : "");
+                if (!visited.contains(next)) {
+                    visited.add(next);
+                    queue.add(next);
+                }
+            }
+        }
     }
 }
