@@ -94,8 +94,6 @@ public class NfaManager {
         // 1. 创建总起点
         NfaState globalStart = new NfaState(globalStateCounter++);
 
-        System.out.println("--- 正在构建合并 NFA ---");
-
         for (SeuLexParser.LexRule rule : rules) {
             try {
                 // 2. 正则 -> 后缀
@@ -111,13 +109,10 @@ public class NfaManager {
                 // 5. 用 ε 边将总起点连向该规则的起点
                 globalStart.nextStates.add(fragment.start);
 
-                System.out.println("已合并规则: " + rule.regex);
             } catch (Exception e) {
                 System.err.println("跳过无效规则 [" + rule.regex + "]: " + e.getMessage());
             }
         }
-
-        System.out.println("合并完成。总状态数: " + globalStateCounter);
         return globalStart;
     }
 }

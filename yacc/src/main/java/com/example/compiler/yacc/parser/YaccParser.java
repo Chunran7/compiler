@@ -172,9 +172,9 @@ public final class YaccParser {
                 }
 
                 if (rhsSymbols.isEmpty()) {
-                    grammar.addEpsilonProduction(lhs, parsed.actionCode(), parsed.explicitPrecedenceToken());
+                    grammar.addEpsilonProduction(lhs, null, parsed.explicitPrecedenceToken());
                 } else {
-                    grammar.addProduction(lhs, parsed.actionCode(), parsed.explicitPrecedenceToken(), rhsSymbols.toArray(new Symbol[0]));
+                    grammar.addProduction(lhs, null, parsed.explicitPrecedenceToken(), rhsSymbols.toArray(new Symbol[0]));
                 }
             }
         }

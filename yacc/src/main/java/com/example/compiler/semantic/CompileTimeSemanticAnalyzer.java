@@ -9,11 +9,12 @@ public final class CompileTimeSemanticAnalyzer {
     private final C99AstNormalizer normalizer = new C99AstNormalizer();
 
     public SemanticResult analyze(AstNode parseTreeRoot) {
-        CoreAstNode coreRoot = normalizer.normalize(parseTreeRoot);
+        return analyze(normalizer.normalize(parseTreeRoot));
+    }
+
+    public SemanticResult analyze(CoreAstNode coreRoot) {
         SymbolTable symbolTable = new SymbolTable();
-
         analyzeProgram(coreRoot, symbolTable);
-
         return new SemanticResult(coreRoot, symbolTable, java.util.List.of());
     }
 

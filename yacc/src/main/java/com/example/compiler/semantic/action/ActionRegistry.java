@@ -75,6 +75,32 @@ public final class ActionRegistry {
             return CoreAstNode.node(AstKind.FUNCTION_DEF, functionName, children);
         });
 
+        registry.register("makeFunctionNoParams", args -> {
+            String functionName = asText(args.get(0), "makeFunctionNoParams.arg0");
+            CoreAstNode block = asNode(args.get(1), "makeFunctionNoParams.arg1");
+            List<CoreAstNode> children = new ArrayList<>();
+            children.add(block);
+            if ("main".equals(functionName)) {
+                return CoreAstNode.node(AstKind.MAIN_FUNCTION, functionName, children);
+            }
+            return CoreAstNode.node(AstKind.FUNCTION_DEF, functionName, children);
+        });
+
+        registry.register("makeProgramFromExternal", args -> {
+            CoreAstNode external = asNode(args.get(0), "makeProgramFromExternal.arg0");
+            List<CoreAstNode> children = new ArrayList<>();
+            children.add(external);
+            return CoreAstNode.node(AstKind.PROGRAM, children);
+        });
+
+        registry.register("appendProgramExternal", args -> {
+            CoreAstNode program = asNode(args.get(0), "appendProgramExternal.arg0");
+            CoreAstNode external = asNode(args.get(1), "appendProgramExternal.arg1");
+            List<CoreAstNode> children = new ArrayList<>(program.getChildren());
+            children.add(external);
+            return CoreAstNode.node(AstKind.PROGRAM, children);
+        });
+
         // Parameters
         registry.register("makeEmptyParamList", args -> new ArrayList<CoreAstNode>());
 
@@ -99,7 +125,15 @@ public final class ActionRegistry {
                 CoreAstNode.node(AstKind.BLOCK, asNodeList(args.get(0), "makeBlock.arg0"))
         );
 
+        registry.register("makeEmptyBlock", args -> CoreAstNode.node(AstKind.BLOCK, List.of()));
+
         registry.register("makeEmptyItemList", args -> new ArrayList<CoreAstNode>());
+
+        registry.register("makeItemList", args -> {
+            List<CoreAstNode> list = new ArrayList<>();
+            list.add(asNode(args.get(0), "makeItemList.arg0"));
+            return list;
+        });
 
         registry.register("appendItem", args -> {
             List<CoreAstNode> list = copyNodeList(args.get(0), "appendItem.arg0");
@@ -125,6 +159,23 @@ public final class ActionRegistry {
         registry.register("makeNoInitializer", args -> SpecialValue.NO_INITIALIZER);
 
         registry.register("makeInitializer", args -> asNode(args.get(0), "makeInitializer.arg0"));
+
+        registry.register("makeBareDeclaration", args ->
+                CoreAstNode.node(
+                        AstKind.DECLARATION,
+                        List.of(CoreAstNode.leaf(AstKind.IDENTIFIER, asText(args.get(0), "makeBareDeclaration.arg0")))
+                )
+        );
+
+        registry.register("makeInitializedDeclaration", args ->
+                CoreAstNode.node(
+                        AstKind.DECLARATION,
+                        List.of(
+                                CoreAstNode.leaf(AstKind.IDENTIFIER, asText(args.get(0), "makeInitializedDeclaration.arg0")),
+                                asNode(args.get(1), "makeInitializedDeclaration.arg1")
+                        )
+                )
+        );
 
         // Statements
         registry.register("makeWhile", args ->
@@ -174,6 +225,14 @@ public final class ActionRegistry {
                         List.of(asNode(args.get(0), "makeExprStmt.arg0"))
                 )
         );
+
+        registry.register("wrapExpressionStatement", args -> {
+            CoreAstNode node = asNode(args.get(0), "wrapExpressionStatement.arg0");
+            if (node.getKind() == AstKind.ASSIGNMENT) {
+                return node;
+            }
+            return CoreAstNode.node(AstKind.EXPRESSION_STMT, List.of(node));
+        });
 
         registry.register("makeReturn", args ->
                 CoreAstNode.node(

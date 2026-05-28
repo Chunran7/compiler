@@ -1,0 +1,129 @@
+package com.example.compiler.regression;
+
+import com.example.compiler.Compiler;
+import com.example.compiler.ir.LlvmLikeTextEmitter;
+import com.example.compiler.ir.YaccIrBridge;
+import com.example.compiler.lex.GeneratedLexer;
+import com.example.compiler.semantic.SemanticException;
+import com.example.compiler.test.TestSupport;
+import com.example.compiler.yacc.generator.SeuYaccGenerator;
+import com.example.compiler.yacc.grammar.Production;
+import com.example.compiler.yacc.runtime.ParseResult;
+import com.example.compiler.yacc.runtime.ParserDriver;
+import com.example.compiler.yacc.token.Token;
+import com.example.compiler.yacc.token.TokenType;
+import org.junit.jupiter.api.Test;
+
+import java.io.FileReader;
+import java.io.Reader;
+import java.io.StringReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public final class CompilerRegressionTest {
+    @Test
+    void generatedLexerRecognizesRepresentativeTokens() {
+        assertEquals(TokenType.INT, firstToken("int").type().canonical());
+        assertEquals(TokenType.RETURN, firstToken("return").type().canonical());
+        assertEquals(TokenType.IDENTIFIER, firstToken("name_1").type().canonical());
+        assertEquals(TokenType.CONSTANT, firstToken("0x1p5").type().canonical());
+        assertEquals(TokenType.STRING_LITERAL, firstToken("\"hello\"").type().canonical());
+        assertEquals(TokenType.ADD_ASSIGN, firstToken("+=").type().canonical());
+    }
+
+    @Test
+    void c99GrammarBuildsLalrParseTable() throws Exception {
+        try (Reader reader = new FileReader(Path.of("resources", "c99.y").toFile())) {
+            SeuYaccGenerator generator = new SeuYaccGenerator(reader, true);
+            assertEquals("translation_unit", generator.getGrammar().getStartSymbol().getName());
+            assertTrue(generator.getCollection().states().size() > 0);
+            assertTrue(!generator.getParseTable().actionRows().isEmpty());
+            assertTrue(generator.getGrammar().getProductions().stream()
+                    .map(Production::getLeft)
+                    .anyMatch(symbol -> "function_definition".equals(symbol.getName())));
+        }
+    }
+
+    @Test
+    void precedenceAndConflictBehaviorRemainStable() throws Exception {
+        try (Reader reader = new FileReader(Path.of("src", "test", "resources", "grammars", "expr_precedence.y").toFile())) {
+            SeuYaccGenerator generator = new SeuYaccGenerator(reader, false);
+            ParseResult result = new ParserDriver(generator.getGrammar(), generator.getParseTable())
+                    .parse(TestSupport.precedenceExpressionTokens());
+            assertTrue(result.isAccepted(), result.getErrorMessage());
+        }
+
+        String reduceReduceGrammar = """
+                %token ID EOF
+                %start S
+                %%
+                S : A
+                  | B
+                  ;
+                A : ID
+                  ;
+                B : ID
+                  ;
+                %%""";
+        Path tmpGrammar = Path.of("target", "rr_conflict_regression.y");
+        Files.createDirectories(tmpGrammar.getParent());
+        Files.writeString(tmpGrammar, reduceReduceGrammar);
+        assertThrows(IllegalStateException.class, () -> {
+            try (Reader reader = new FileReader(tmpGrammar.toFile())) {
+                new SeuYaccGenerator(reader, false);
+            }
+        });
+    }
+
+    @Test
+    void javaInternalSemanticPathStillRejectsInvalidPrograms() throws Exception {
+        assertSemanticError(TestSupport.duplicateDeclarationTokens(), "Duplicate declaration");
+        assertSemanticError(TestSupport.undeclaredUseTokens(), "undeclared identifier");
+        assertSemanticError(TestSupport.undefinedFunctionCallTokens(), "undefined function");
+        assertSemanticError(TestSupport.argumentCountMismatchTokens(), "Argument count mismatch");
+    }
+
+    @Test
+    void javaInternalIrPathStillEmitsReferenceIr() throws Exception {
+        ParseResult parseResult = c99Driver().parse(TestSupport.validProgramTokens());
+        assertTrue(parseResult.isAccepted(), parseResult.getErrorMessage());
+        YaccIrBridge bridge = new YaccIrBridge();
+        String llvm = new LlvmLikeTextEmitter().emit(bridge.generate(parseResult));
+        assertTrue(llvm.contains("define i32 @add"));
+        assertTrue(llvm.contains("define i32 @main"));
+        assertTrue(llvm.contains("call i32 @add"));
+
+        var viaC = new Compiler().compileViaGeneratedC("""
+                int add(int x, int y) { return x + y; }
+                int main() { return add(3, 4); }
+                """);
+        assertTrue(viaC.irText().contains("; generated by yysemantic.c"));
+    }
+
+    private static void assertSemanticError(List<Token> tokens, String expectedMessage) throws Exception {
+        ParseResult parseResult = c99Driver().parse(tokens);
+        assertTrue(parseResult.isAccepted(), parseResult.getErrorMessage());
+        SemanticException exception = assertThrows(SemanticException.class,
+                () -> new YaccIrBridge().analyze(parseResult));
+        assertTrue(exception.getMessage().contains(expectedMessage));
+    }
+
+    private static ParserDriver c99Driver() throws Exception {
+        try (Reader reader = new FileReader(Path.of("resources", "c99.y").toFile())) {
+            SeuYaccGenerator generator = new SeuYaccGenerator(reader, true);
+            return new ParserDriver(generator.getGrammar(), generator.getParseTable());
+        }
+    }
+
+    private static Token firstToken(String source) {
+        GeneratedLexer lexer = new GeneratedLexer(new StringReader(source));
+        return lexer.nextToken();
+    }
+}
