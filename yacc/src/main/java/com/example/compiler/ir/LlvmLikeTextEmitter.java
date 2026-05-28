@@ -5,6 +5,16 @@ import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 
+/**
+ * 三地址 IR 到 LLVM 风格文本的发射器。
+ *
+ * <p>输入是 IrGenerationResult，输出是可读的 LLVM-like IR 文本。它负责把变量
+ * 映射到 alloca slot，把赋值转换为 store/load，把算术运算转换为 add/sub/mul/sdiv，
+ * 把比较转换为 icmp，把控制流转换为 br/label，把 return 转换为 ret。</p>
+ *
+ * <p>注意：项目中另有 CSemanticProgramEmitter 路径，会先生成 yysemantic.c，
+ * 再由该 C 程序运行时打印 LLVM IR；本类则是 Java 内部直接文本发射路径。</p>
+ */
 public final class LlvmLikeTextEmitter {
     public String emit(IrGenerationResult result) {
         StringBuilder sb = new StringBuilder();

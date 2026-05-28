@@ -13,6 +13,16 @@ import com.example.compiler.yacc.lr1.LR1Item;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * ACTION/GOTO 分析表构造器。
+ *
+ * <p>输入是 Grammar 和 LR(1)/LALR 项目集族；输出是 {@link ParseTable}。
+ * 对每个状态：
+ * 若点后是终结符，写入 shift；
+ * 若项目完成，按 lookahead 写入 reduce；
+ * 若完成的是增广开始产生式并展望 EOF，写入 accept；
+ * 非终结符转移写入 GOTO。</p>
+ */
 public final class ParseTableBuilder {
     private final Grammar grammar;
     private final CanonicalCollection collection;
@@ -22,6 +32,12 @@ public final class ParseTableBuilder {
         this.collection = collection;
     }
 
+    /**
+     * 生成完整 ACTION/GOTO 表。
+     *
+     * @return 可被 ParserDriver 或 ParserProgramEmitter 使用的分析表
+     * @throws IllegalStateException 遇到无法用优先级/结合性解决的冲突时抛出
+     */
     public ParseTable build() {
         ParseTable table = new ParseTable();
 
@@ -95,6 +111,12 @@ public final class ParseTableBuilder {
         table.putResolvedAction(stateId, terminal, resolved);
     }
 
+    /**
+     * 处理 ACTION 表冲突。
+     *
+     * <p>当前实现支持 yacc 常见的 shift/reduce 优先级解决策略；reduce/reduce
+     * 冲突会直接报错，因为这通常说明文法本身有二义性或需要改写。</p>
+     */
     private Action resolveConflict(Action existing,
                                    Action candidate,
                                    Terminal lookahead,

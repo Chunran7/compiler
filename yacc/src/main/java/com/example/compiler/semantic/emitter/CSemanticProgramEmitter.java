@@ -6,9 +6,26 @@ import com.example.compiler.yacc.ast.CoreAstNode;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * yysemantic.c 生成器。
+ *
+ * <p>输入是经过语义检查的 Core AST；输出是一份 C 源程序文本。该 C 程序被
+ * gcc 编译运行后，会按照 Core AST 的动态语义打印 LLVM IR。这样项目就能
+ * 贴近课程图中“语义引擎 -> yysemantic.c -> C 编译器 -> 可执行中间代码生成程序
+ * -> LLVM IR”的路线。</p>
+ *
+ * <p>当前支持项目定义的 MiniC 子集：函数、参数、变量声明/赋值、return、
+ * if/while、二元整数表达式和函数调用；不是完整 C99 语义发射器。</p>
+ */
 public final class CSemanticProgramEmitter {
     private int cValueCounter;
 
+    /**
+     * 生成完整 yysemantic.c 文本。
+     *
+     * @param coreRoot Core AST 根节点
+     * @return 可由 gcc 编译的 C 源码
+     */
     public String emit(CoreAstNode coreRoot) {
         StringBuilder out = new StringBuilder();
         emitHeader(out);

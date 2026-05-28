@@ -5,12 +5,24 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Walks a C99 parse tree (from c99.y grammar) and extracts MiniC-subset semantics
- * into {@link CoreAstNode}. Only handles the subset needed for IR generation;
- * other C99 constructs are skipped or passed through.
+ * C99 parse tree 到 Core AST 的归一化器。
+ *
+ * <p>输入是 ParserDriver 根据完整 {@code c99.y} 规约出的 Parse Tree；
+ * 输出是项目中间代码生成所需的 MiniC 子集 {@link CoreAstNode}。这正是
+ * “语法覆盖完整 c99.y，但语义/IR 只支持课程子集”的边界所在。</p>
+ *
+ * <p>当前支持函数定义、参数、复合语句、声明、赋值、return、if、while、
+ * 二元表达式、函数调用、标识符和整数字面量。数组、结构体、指针等复杂 C99
+ * 构造不会作为完整语义进入 Core AST。</p>
  */
 public final class C99AstNormalizer {
 
+    /**
+     * 从 translation_unit 根节点开始抽取 Core AST。
+     *
+     * @param parseTreeRoot c99.y 语法树根节点
+     * @return PROGRAM 类型的 Core AST 根节点
+     */
     public CoreAstNode normalize(AstNode parseTreeRoot) {
         requireSymbol(parseTreeRoot, "translation_unit");
         List<CoreAstNode> functions = new ArrayList<>();

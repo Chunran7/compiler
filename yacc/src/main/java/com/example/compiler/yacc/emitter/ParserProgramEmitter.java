@@ -17,7 +17,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * 语法分析程序源码生成器。
+ *
+ * <p>当前实现生成的是独立 Java 源码形式的表驱动 parser：把 Grammar 中的
+ * 产生式数组、ParseTable 中的 ACTION/GOTO 表、token 文件读取逻辑和
+ * LR 分析循环写入一个 Java 类。它对应报告中的“yyparse.c 生成”位置，
+ * 但当前仓库实际产物是 Java parser 源码，而不是 C 版 {@code yyparse.c}。</p>
+ *
+ * <p>若后续严格贴合老师流程，可在本类设计基础上实现 CParserProgramEmitter：
+ * 表编码和移进/规约算法相同，只是目标语言从 Java 换成 C。</p>
+ */
 public final class ParserProgramEmitter {
+    /**
+     * 将分析表和产生式编码为一个可编译的 parser 源文件文本。
+     *
+     * @param className 生成类名
+     * @param grammar 已解析文法
+     * @param parseTable 已构造的 ACTION/GOTO 表
+     * @return Java 源码文本
+     */
     public String emit(String className, Grammar grammar, ParseTable parseTable) {
         Objects.requireNonNull(className, "className");
         Objects.requireNonNull(grammar, "grammar");

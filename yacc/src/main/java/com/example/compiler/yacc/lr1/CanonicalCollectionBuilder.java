@@ -13,6 +13,13 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 
+/**
+ * 规范 LR(1) 项目集族构造器。
+ *
+ * <p>从增广开始产生式 {@code S' -> · S, EOF} 出发，用 closure 和 goto
+ * 生成 LR(1) 自动机的所有状态以及状态间转移。该集合随后可以直接生成
+ * LR(1) ParseTable，也可以先交给 LALRConverter 合并同心项目集。</p>
+ */
 public final class CanonicalCollectionBuilder {
     private final Grammar grammar;
     private final ClosureBuilder closureBuilder;
@@ -22,6 +29,11 @@ public final class CanonicalCollectionBuilder {
         this.closureBuilder = new ClosureBuilder(grammar, firstSetCalculator);
     }
 
+    /**
+     * 广度优先构造 LR(1) 项目集族。
+     *
+     * @return 包含所有项目集状态和符号转移边的 CanonicalCollection
+     */
     public CanonicalCollection build() {
         LR1Item startItem = new LR1Item(grammar.getProduction(0), 0, grammar.getEof());
         Set<LR1Item> startState = closureBuilder.closure(Set.of(startItem));

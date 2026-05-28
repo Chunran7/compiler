@@ -17,6 +17,16 @@ import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
 
+/**
+ * 表驱动语法分析运行器。
+ *
+ * <p>输入是 Lex 阶段得到的 token 列表（测试中等价于 tokens.txt 的内容），
+ * 以及 SeuYaccGenerator 生成的 Grammar/ParseTable。输出是 {@link ParseResult}：
+ * 包括是否接受、规约序列和带语义动作节点的 parse tree 根节点。</p>
+ *
+ * <p>在课程流程中，它对应“可执行语法分析程序 yyparse”的核心运行逻辑：
+ * 通过 ACTION/GOTO 表执行 shift/reduce/accept，并在规约时构造语法树。</p>
+ */
 public final class ParserDriver {
     private final Grammar grammar;
     private final ParseTable parseTable;
@@ -26,6 +36,13 @@ public final class ParserDriver {
         this.parseTable = parseTable;
     }
 
+    /**
+     * 执行 LR 表驱动分析。
+     *
+     * <p>stateStack 保存自动机状态，symbolStack 保存已识别语法符号，
+     * astStack 与符号栈同步保存树节点。SHIFT 时压入终结符叶子；
+     * REDUCE 时按产生式右部长度弹栈并构造父节点；ACCEPT 时返回根节点。</p>
+     */
     public ParseResult parse(List<Token> tokens) {
         Deque<Integer> stateStack = new ArrayDeque<>();
         Deque<Symbol> symbolStack = new ArrayDeque<>();

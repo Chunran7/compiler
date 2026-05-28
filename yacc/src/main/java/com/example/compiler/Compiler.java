@@ -18,7 +18,13 @@ import java.nio.file.*;
 import java.util.*;
 
 /**
- * 编译器统一入口：源码 → 词法 → 语法 → 语义 → IR
+ * 编译器统一入口：源码 → 词法 → 语法 → 语义 → IR。
+ *
+ * <p>当前仓库的主入口是 Compiler。它使用 GeneratedLexer 直接得到 token 列表，
+ * 再懒加载 resources/c99.y，经 SeuYaccGenerator 构造 LALR 分析表，
+ * 交给 ParserDriver 生成 parse tree，最后通过语义/IR 模块输出 LLVM-like IR。
+ * {@link #compileViaGeneratedC(Reader, Path, Path, Path)} 额外走 yysemantic.c 路线：
+ * Core AST -> CSemanticProgramEmitter -> gcc -> yysemantic -> LLVM IR 文本。</p>
  *
  * <pre>
  * Compiler compiler = new Compiler();

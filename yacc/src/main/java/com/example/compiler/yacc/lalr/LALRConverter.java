@@ -11,7 +11,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * LR(1) 到 LALR 的状态合并器。
+ *
+ * <p>LALR 的核心思想是：若两个 LR(1) 状态拥有相同 LR(0) core
+ * （即产生式编号和点位置相同），就把它们合并为一个状态，并把各项目的
+ * lookahead 集合取并集。这样可以显著减少 c99.y 这类大文法的状态数量，
+ * 同时保持 yacc 常用的分析能力。</p>
+ */
 public final class LALRConverter {
+    /**
+     * 合并 LR(1) 项目集族。
+     *
+     * @param lr1 规范 LR(1) 项目集族
+     * @return 状态数更少、转移已重新映射的 LALR 项目集族
+     */
     public CanonicalCollection convert(CanonicalCollection lr1) {
         Map<String, Integer> coreGroupIds = new LinkedHashMap<>();
         List<Set<LR1Item>> mergedStates = new ArrayList<>();

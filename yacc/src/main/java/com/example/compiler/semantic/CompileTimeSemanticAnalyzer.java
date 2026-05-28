@@ -5,9 +5,23 @@ import com.example.compiler.yacc.ast.AstNode;
 import com.example.compiler.yacc.ast.C99AstNormalizer;
 import com.example.compiler.yacc.ast.CoreAstNode;
 
+/**
+ * 编译时语义分析器。
+ *
+ * <p>输入是 c99.y 规约得到的 Parse Tree，先通过 C99AstNormalizer 抽取
+ * Core AST，再建立 {@link SymbolTable} 并进行静态语义检查。当前检查包括：
+ * 程序必须包含 main、同作用域重复声明、未声明变量、未定义函数调用、
+ * 函数实参数量不匹配，以及语句/表达式节点结构合法性。</p>
+ */
 public final class CompileTimeSemanticAnalyzer {
     private final C99AstNormalizer normalizer = new C99AstNormalizer();
 
+    /**
+     * 完成 Core AST 构建和符号表检查。
+     *
+     * @param parseTreeRoot ParserDriver 产生的 parse tree 根节点
+     * @return 语义结果，包含 Core AST 与 SymbolTable；此阶段不直接输出 LLVM
+     */
     public SemanticResult analyze(AstNode parseTreeRoot) {
         CoreAstNode coreRoot = normalizer.normalize(parseTreeRoot);
         SymbolTable symbolTable = new SymbolTable();

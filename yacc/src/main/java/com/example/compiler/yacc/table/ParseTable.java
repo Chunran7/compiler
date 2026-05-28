@@ -6,6 +6,13 @@ import com.example.compiler.yacc.grammar.Terminal;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * 表驱动语法分析器使用的 ACTION/GOTO 表。
+ *
+ * <p>ACTION[state, terminal] 存放 shift/reduce/accept；
+ * GOTO[state, nonTerminal] 存放规约后应进入的状态。ParserDriver 在运行时
+ * 完全依赖这两张表完成移进、规约和接受判断。</p>
+ */
 public final class ParseTable {
     private final Map<Integer, Map<Terminal, Action>> actions = new LinkedHashMap<>();
     private final Map<Integer, Map<NonTerminal, Integer>> gotos = new LinkedHashMap<>();

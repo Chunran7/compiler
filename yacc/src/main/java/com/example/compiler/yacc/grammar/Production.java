@@ -2,6 +2,14 @@ package com.example.compiler.yacc.grammar;
 
 import java.util.List;
 
+/**
+ * 文法产生式。
+ *
+ * <p>一个 Production 表示 {@code A -> α}。它的 id 会被 ParseTable 的
+ * REDUCE 动作引用，也会写入 AstNode，便于调试 action-tree/parse-tree。
+ * actionCode 保存 yacc 规则中的语义动作文本；precedence 保存该产生式
+ * 参与冲突处理时使用的优先级和结合性。</p>
+ */
 public final class Production {
     private final int id;
     private final NonTerminal left;

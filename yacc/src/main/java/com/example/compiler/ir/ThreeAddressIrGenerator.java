@@ -6,11 +6,25 @@ import com.example.compiler.yacc.ast.CoreAstNode;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Core AST 到三地址 IR 的生成器。
+ *
+ * <p>输入是经过语义检查的 Core AST；输出是 IrInstruction 列表。这里的 IR
+ * 表达的是运行时动态语义：变量赋值、二元运算、函数调用、return、if/while
+ * 控制流等。随后 LlvmLikeTextEmitter 或 CSemanticProgramEmitter 会把这些
+ * 语义转换为 LLVM 风格文本。</p>
+ */
 public final class ThreeAddressIrGenerator {
     private final List<IrInstruction> instructions = new ArrayList<>();
     private int tempCounter;
     private int labelCounter;
 
+    /**
+     * 从 PROGRAM 根节点生成完整三地址 IR。
+     *
+     * @param coreRoot Core AST 根节点
+     * @return 不可变 IR 指令列表
+     */
     public List<IrInstruction> generate(CoreAstNode coreRoot) {
         instructions.clear();
         tempCounter = 0;
