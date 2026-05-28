@@ -1,17 +1,9 @@
 package com.example.compiler.semantic;
 
 import com.example.compiler.yacc.ast.AstKind;
-import com.example.compiler.yacc.ast.AstNode;
-import com.example.compiler.yacc.ast.C99AstNormalizer;
 import com.example.compiler.yacc.ast.CoreAstNode;
 
 public final class CompileTimeSemanticAnalyzer {
-    private final C99AstNormalizer normalizer = new C99AstNormalizer();
-
-    public SemanticResult analyze(AstNode parseTreeRoot) {
-        return analyze(normalizer.normalize(parseTreeRoot));
-    }
-
     public SemanticResult analyze(CoreAstNode coreRoot) {
         SymbolTable symbolTable = new SymbolTable();
         analyzeProgram(coreRoot, symbolTable);

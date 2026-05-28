@@ -1,12 +1,8 @@
 package com.example.compiler;
 
-import com.example.compiler.ir.IrGenerationResult;
 import com.example.compiler.ir.JimpleTextEmitter;
-import com.example.compiler.ir.LlvmLikeTextEmitter;
-import com.example.compiler.ir.YaccIrBridge;
+import com.example.compiler.ir.IrGenerator;
 import com.example.compiler.lex.CLexerToolchainEmitter;
-import com.example.compiler.lex.GeneratedLexer;
-import com.example.compiler.semantic.CompileTimeSemanticAnalyzer;
 import com.example.compiler.semantic.SemanticActionEngine;
 import com.example.compiler.semantic.SemanticResult;
 import com.example.compiler.semantic.action.C99SubsetSemanticActions;
@@ -17,116 +13,18 @@ import com.example.compiler.yacc.ast.AstTreeCodec;
 import com.example.compiler.yacc.emitter.CParserProgramEmitter;
 import com.example.compiler.yacc.generator.SeuYaccGenerator;
 import com.example.compiler.yacc.runtime.ParseResult;
-import com.example.compiler.yacc.runtime.ParserDriver;
-import com.example.compiler.yacc.token.Token;
-import com.example.compiler.yacc.token.TokenType;
 
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 
 /**
- * 编译器统一入口：源码 → 词法 → 语法 → 语义 → IR
- *
- * <pre>
- * Compiler compiler = new Compiler();
- * CompilerResult result = compiler.compile("int main() { return 0; }");
- * System.out.println(result.getIrText());
- * </pre>
+ * 编译器主流程入口：c99.l/c99.y/test.c -> yylex.c/yyparse.c/action-tree.txt
+ * -> Core AST -> yysemantic.c -> LLVM IR/Jimple.
  */
 public final class Compiler {
 
-    private final String grammarPath;
-
     public Compiler() {
-        this("resources/c99.y");
-    }
-
-    public Compiler(String grammarPath) {
-        this.grammarPath = grammarPath;
-    }
-
-    // ── 入口 1: 源码字符串 ──
-
-    public CompileResult compile(String source) {
-        return compile(new StringReader(source));
-    }
-
-    // ── 入口 2: Reader ──
-
-    public CompileResult compile(Reader source) {
-        CompileResult result = new CompileResult();
-
-        // 1. 词法分析
-        List<Token> tokens = lex(source);
-        result.tokens = tokens;
-
-        // 2. 语法分析
-        ParseResult parseResult = parse(tokens);
-        result.parseResult = parseResult;
-        if (!parseResult.isAccepted()) {
-            return result; // 语法错误，后续阶段跳过
-        }
-
-        // 3. 语义分析 + IR 生成
-        YaccIrBridge bridge = new YaccIrBridge();
-        SemanticResult semanticResult = bridge.analyze(parseResult);
-        result.semanticResult = semanticResult;
-
-        // 4. IR 优化后生成
-        IrGenerationResult ir = bridge.generate(parseResult);
-        result.ir = ir;
-        result.irText = new LlvmLikeTextEmitter().emit(ir);
-
-        return result;
-    }
-
-    public CompileResult compileViaGeneratedC(String source) throws IOException, InterruptedException {
-        return compileViaGeneratedC(new StringReader(source), Path.of("generated", "semantic"));
-    }
-
-    public CompileResult compileViaGeneratedC(Reader source, Path outputDir) throws IOException, InterruptedException {
-        return compileViaGeneratedC(source, outputDir, null, null);
-    }
-
-    public CompileResult compileViaGeneratedC(Reader source,
-                                              Path semanticOutputDir,
-                                              Path llvmIrFile,
-                                              Path executableFile) throws IOException, InterruptedException {
-        CompileResult result = new CompileResult();
-
-        List<Token> tokens = lex(source);
-        result.tokens = tokens;
-
-        ParseResult parseResult = parse(tokens);
-        result.parseResult = parseResult;
-        if (!parseResult.isAccepted()) {
-            return result;
-        }
-
-        CompileTimeSemanticAnalyzer analyzer = new CompileTimeSemanticAnalyzer();
-        SemanticResult semanticResult = analyzer.analyze(parseResult.getAstRoot());
-        result.semanticResult = semanticResult;
-
-        Files.createDirectories(semanticOutputDir);
-        Path cFile = semanticOutputDir.resolve("yysemantic.c");
-        Path executable = semanticOutputDir.resolve("yysemantic");
-        Files.writeString(cFile, new CSemanticProgramEmitter().emit(semanticResult.astRoot()));
-        result.generatedSemanticC = cFile;
-
-        runProcess(List.of("gcc", "-std=c99", "-Wall", "-Wextra", "-o", executable.toString(), cFile.toString()));
-        result.irText = runProcess(List.of(executable.toAbsolutePath().toString()));
-
-        if (llvmIrFile != null || executableFile != null) {
-            Path llFile = llvmIrFile == null ? Path.of("generated", "final", "program.ll") : llvmIrFile;
-            if (llFile.getParent() != null) {
-                Files.createDirectories(llFile.getParent());
-            }
-            Files.writeString(llFile, result.irText);
-            result.llvmIrFile = llFile;
-
-        }
-        return result;
     }
 
     public CompileResult compileStrictFlowchart(String source) throws IOException, InterruptedException {
@@ -287,7 +185,7 @@ public final class Compiler {
         SemanticActionEngine semanticEngine = new SemanticActionEngine();
         SemanticResult semanticResult = semanticEngine.analyzeActionTree(actionTree);
         result.semanticResult = semanticResult;
-        result.ir = new YaccIrBridge().generate(semanticResult);
+        result.ir = new IrGenerator().generate(semanticResult);
         Path coreAstFile = semanticDir.resolve("core-ast.txt");
         Files.writeString(coreAstFile, semanticResult.astRoot().prettyPrint());
         result.coreAstFile = coreAstFile;
@@ -414,93 +312,6 @@ public final class Compiler {
                 "native-backend-trace.json", "native-backend-report.md")) {
             Files.deleteIfExists(nativeDir.resolve(fileName));
         }
-    }
-
-    // ── 入口 3: 文件 ──
-
-    public CompileResult compileFile(Path file) throws IOException {
-        return compile(Files.readString(file));
-    }
-
-    public CompileResult compileFileViaGeneratedC(Path file) throws IOException, InterruptedException {
-        return compileViaGeneratedC(Files.newBufferedReader(file), Path.of("generated", "semantic"));
-    }
-
-    public CompileResult compileFileViaGeneratedC(Path file,
-                                                  Path llvmIrFile,
-                                                  Path executableFile) throws IOException, InterruptedException {
-        return compileViaGeneratedC(
-                Files.newBufferedReader(file),
-                Path.of("generated", "semantic"),
-                llvmIrFile,
-                executableFile
-        );
-    }
-
-    public CompileResult compileFileStrictFlowchart(Path file,
-                                                    Path llvmIrFile,
-                                                    Path executableFile,
-                                                    Path jimpleFile,
-                                                    Path bytecodeOutput) throws IOException, InterruptedException {
-        return compileStrictFlowchart(
-                Path.of("resources", "c99.l"),
-                Path.of("resources", "c99.y"),
-                file,
-                Path.of("generated", "strict"),
-                llvmIrFile,
-                executableFile,
-                jimpleFile,
-                bytecodeOutput
-        );
-    }
-
-    // ── 内部：词法分析 ──
-
-    private List<Token> lex(Reader source) {
-        List<Token> tokens = new ArrayList<>();
-        GeneratedLexer lexer = new GeneratedLexer(source);
-        Token token;
-        while (true) {
-            token = lexer.nextToken();
-            if (token.type() == TokenType.EOF) break;
-            tokens.add(token);
-        }
-        tokens.add(new Token(TokenType.EOF, "EOF"));
-        return tokens;
-    }
-
-    // ── 内部：语法分析（懒加载语法） ──
-
-    private transient SeuYaccGenerator _generator;
-    private transient ParserDriver _driver;
-
-    private ParseResult parse(List<Token> tokens) {
-        if (_driver == null) {
-            try (Reader reader = new FileReader(grammarPath)) {
-                _generator = new SeuYaccGenerator(reader, true);
-                _driver = new ParserDriver(_generator.getGrammar(), _generator.getParseTable());
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to load grammar: " + grammarPath, e);
-            }
-        }
-        return _driver.parse(tokens);
-    }
-
-    private String runProcess(List<String> command) throws IOException, InterruptedException {
-        ProcessBuilder builder = new ProcessBuilder(command);
-        builder.directory(Path.of(".").toAbsolutePath().normalize().toFile());
-        builder.redirectErrorStream(true);
-        Process process = builder.start();
-        String output;
-        try (InputStream in = process.getInputStream()) {
-            output = new String(in.readAllBytes());
-        }
-        int exit = process.waitFor();
-        if (exit != 0) {
-            throw new RuntimeException("Command failed (" + exit + "): " + String.join(" ", command)
-                    + System.lineSeparator() + output);
-        }
-        return output;
     }
 
     private void emitLexerProgram(Path lexFile, Path outputFile) throws IOException {

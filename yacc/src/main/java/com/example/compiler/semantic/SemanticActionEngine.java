@@ -19,12 +19,6 @@ public final class SemanticActionEngine {
     private final ThreeAddressIrGenerator irGenerator = new ThreeAddressIrGenerator();
     private final TranslationSchemeExecutor translationSchemeExecutor = new TranslationSchemeExecutor();
 
-    public SemanticResult analyze(AstNode parseTreeRoot) {
-        SemanticResult checked = compileTimeAnalyzer.analyze(parseTreeRoot);
-        List<IrInstruction> instructions = irGenerator.generate(checked.astRoot());
-        return new SemanticResult(checked.astRoot(), checked.symbolTable(), instructions);
-    }
-
     public SemanticResult analyzeActionTree(AstNode parseTreeRoot) {
         translationSchemeExecutor.execute(parseTreeRoot);
         Object value = parseTreeRoot.getSemanticValue();
