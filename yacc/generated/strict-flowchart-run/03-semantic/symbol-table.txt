@@ -1,0 +1,3 @@
+Symbol{name='main', type=FUNCTION, scope=0, params=0}
+Symbol{name='a', type=INT, scope=2}
+Symbol{name='b', type=INT, scope=2}

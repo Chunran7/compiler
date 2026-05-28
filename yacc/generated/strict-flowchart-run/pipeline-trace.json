@@ -1,0 +1,222 @@
+[
+  {
+    "stage": "copy-inputs",
+    "inputs": ["resources/c99.l", "resources/c99.y", "src/test/resources/pipeline/minimal.c"],
+    "outputs": ["generated/strict-flowchart-run/00-input/c99.l", "generated/strict-flowchart-run/00-input/c99.y", "generated/strict-flowchart-run/00-input/test.c"],
+    "command": null,
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 0
+  },
+  {
+    "stage": "lex-generate-yylex-c",
+    "inputs": ["generated/strict-flowchart-run/00-input/c99.l"],
+    "outputs": ["generated/strict-flowchart-run/01-lex/yylex.c"],
+    "command": "SeuLexParser / NFA / DFA / Minimize / CLexerProgramEmitter",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 53882
+  },
+  {
+    "stage": "lex-compile-yylex",
+    "inputs": ["generated/strict-flowchart-run/01-lex/yylex.c"],
+    "outputs": ["generated/strict-flowchart-run/01-lex/yylex"],
+    "command": "gcc yylex.c -o yylex",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 66
+  },
+  {
+    "stage": "lex-run-yylex",
+    "inputs": ["generated/strict-flowchart-run/00-input/test.c", "generated/strict-flowchart-run/01-lex/yylex"],
+    "outputs": ["generated/strict-flowchart-run/01-lex/tokens.txt"],
+    "command": "./yylex ../00-input/test.c tokens.txt",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 552
+  },
+  {
+    "stage": "yacc-generate-yyparse-c",
+    "inputs": ["generated/strict-flowchart-run/00-input/c99.y"],
+    "outputs": ["generated/strict-flowchart-run/02-yacc/yyparse.c"],
+    "command": "YaccParser / LR(1) / LALR / ParseTable / CParserProgramEmitter",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 16871
+  },
+  {
+    "stage": "yacc-compile-yyparse",
+    "inputs": ["generated/strict-flowchart-run/02-yacc/yyparse.c"],
+    "outputs": ["generated/strict-flowchart-run/02-yacc/yyparse"],
+    "command": "gcc yyparse.c -o yyparse",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 128
+  },
+  {
+    "stage": "yacc-run-yyparse",
+    "inputs": ["generated/strict-flowchart-run/02-yacc/yyparse", "generated/strict-flowchart-run/01-lex/tokens.txt"],
+    "outputs": ["generated/strict-flowchart-run/02-yacc/action-tree.txt"],
+    "command": "./yyparse ../01-lex/tokens.txt action-tree.txt",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 440
+  },
+  {
+    "stage": "semantic-action-tree-to-core-ast",
+    "inputs": ["generated/strict-flowchart-run/02-yacc/action-tree.txt"],
+    "outputs": ["generated/strict-flowchart-run/03-semantic/core-ast.txt"],
+    "command": "AstTreeCodec / SemanticActionEngine / TranslationSchemeExecutor",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 24
+  },
+  {
+    "stage": "semantic-check-symbol-table",
+    "inputs": ["generated/strict-flowchart-run/03-semantic/core-ast.txt"],
+    "outputs": ["generated/strict-flowchart-run/03-semantic/symbol-table.txt"],
+    "command": "CompileTimeSemanticAnalyzer / SymbolTable",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 0
+  },
+  {
+    "stage": "semantic-generate-yysemantic-c",
+    "inputs": ["generated/strict-flowchart-run/03-semantic/core-ast.txt"],
+    "outputs": ["generated/strict-flowchart-run/03-semantic/yysemantic.c"],
+    "command": "CSemanticProgramEmitter",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 0
+  },
+  {
+    "stage": "semantic-compile-yysemantic",
+    "inputs": ["generated/strict-flowchart-run/03-semantic/yysemantic.c"],
+    "outputs": ["generated/strict-flowchart-run/03-semantic/yysemantic"],
+    "command": "gcc yysemantic.c -o yysemantic",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 52
+  },
+  {
+    "stage": "semantic-run-yysemantic",
+    "inputs": ["generated/strict-flowchart-run/03-semantic/yysemantic"],
+    "outputs": ["generated/strict-flowchart-run/04-ir/output.ll"],
+    "command": "./yysemantic",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 164
+  },
+  {
+    "stage": "ir-write-llvm",
+    "inputs": ["generated/strict-flowchart-run/03-semantic/yysemantic"],
+    "outputs": ["generated/strict-flowchart-run/04-ir/output.ll"],
+    "command": "yysemantic stdout",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 0
+  },
+  {
+    "stage": "ir-write-jimple",
+    "inputs": ["generated/strict-flowchart-run/03-semantic/core-ast.txt"],
+    "outputs": ["generated/strict-flowchart-run/04-ir/output.jimple"],
+    "command": "JimpleTextEmitter",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 1
+  },
+  {
+    "stage": "soot-detect",
+    "inputs": ["generated/strict-flowchart-run/04-ir/output.jimple"],
+    "outputs": [],
+    "command": "check SOOT_JAR",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": "SOOT_JAR not available",
+    "durationMs": 0
+  },
+  {
+    "stage": "soot-skipped",
+    "inputs": ["generated/strict-flowchart-run/04-ir/output.jimple"],
+    "outputs": ["generated/strict-flowchart-run/05-soot/soot-skipped.txt"],
+    "command": "SootInvoker",
+    "exitCode": null,
+    "success": true,
+    "skippedReason": "Soot not requested",
+    "durationMs": 0
+  },
+  {
+    "stage": "native-detect-clang",
+    "inputs": [],
+    "outputs": [],
+    "command": "clang --version",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 16
+  },
+  {
+    "stage": "native-validate-llvm-ir",
+    "inputs": ["generated/strict-flowchart-run/04-ir/output.ll"],
+    "outputs": ["generated/strict-flowchart-run/06-native/validate.o"],
+    "command": "clang -O0 -c ../04-ir/output.ll -o validate.o",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 17
+  },
+  {
+    "stage": "native-emit-assembly",
+    "inputs": ["generated/strict-flowchart-run/04-ir/output.ll"],
+    "outputs": ["generated/strict-flowchart-run/06-native/output.s"],
+    "command": "clang -O0 -S ../04-ir/output.ll -o output.s",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 17
+  },
+  {
+    "stage": "native-emit-object",
+    "inputs": ["generated/strict-flowchart-run/04-ir/output.ll"],
+    "outputs": ["generated/strict-flowchart-run/06-native/output.o"],
+    "command": "clang -O0 -c ../04-ir/output.ll -o output.o",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 16
+  },
+  {
+    "stage": "native-link-executable",
+    "inputs": ["generated/strict-flowchart-run/06-native/output.o"],
+    "outputs": ["generated/strict-flowchart-run/06-native/native-executable"],
+    "command": "clang output.o -o ./native-executable",
+    "exitCode": 0,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 27
+  },
+  {
+    "stage": "native-run-executable",
+    "inputs": ["generated/strict-flowchart-run/06-native/native-executable"],
+    "outputs": [],
+    "command": "./native-executable",
+    "exitCode": 3,
+    "success": true,
+    "skippedReason": null,
+    "durationMs": 176
+  }
+]

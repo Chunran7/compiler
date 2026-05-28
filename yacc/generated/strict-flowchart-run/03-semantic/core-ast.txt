@@ -1,0 +1,13 @@
+└── PROGRAM
+    └── MAIN_FUNCTION("main")
+        └── BLOCK
+            ├── DECLARATION
+            │   ├── IDENTIFIER("a")
+            │   └── INT_LITERAL("1")
+            ├── DECLARATION
+            │   ├── IDENTIFIER("b")
+            │   └── INT_LITERAL("2")
+            └── RETURN_STMT
+                └── BINARY_EXPR("+")
+                    ├── IDENTIFIER("a")
+                    └── IDENTIFIER("b")
