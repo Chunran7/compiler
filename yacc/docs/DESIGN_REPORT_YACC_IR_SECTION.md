@@ -19,6 +19,7 @@ AstNode -> C99AstNormalizer -> Core AST
 Core AST -> CompileTimeSemanticAnalyzer -> SymbolTable
 Core AST -> ThreeAddressIrGenerator -> IrInstruction
 IrInstruction -> LlvmLikeTextEmitter -> LLVM-like IR
+ParseTable -> CParserProgramEmitter -> yyparse.c -> gcc -> yyparse -> action-tree.txt
 Core AST -> CSemanticProgramEmitter -> yysemantic.c -> gcc -> yysemantic -> LLVM IR
 ```
 
@@ -85,7 +86,7 @@ LLVM 风格 IR 中，局部变量通过 `alloca` 建立栈槽，赋值通过 `st
 
 ## 10. Jimple/Soot 后端
 
-当前仓库没有实际 `JimpleTextEmitter` 和 `SootInvoker` 类。因此 Jimple/Soot 目前应作为后续扩展方向描述：理想流程是从 Core AST 或三地址 IR 生成 Jimple 文本，再在配置 `SOOT_JAR` 时调用 Soot 生成 Java class 文件。
+当前测试流程会根据三地址 IR 生成 Jimple 风格文本，作为中间表示展示；但仓库没有实际 `SootInvoker` 类。因此 Soot 目前应作为后续扩展方向描述：理想流程是在配置 `SOOT_JAR` 时调用 Soot 生成 Java class 文件。
 
 ## 11. Native Backend 扩展
 
@@ -101,6 +102,6 @@ LLVM 风格 IR 中，局部变量通过 `alloca` 建立栈槽，赋值通过 `st
 
 ## 13. 当前不足与改进方向
 
-当前项目的主要不足是：语法阶段虽然使用完整 `c99.y`，但语义和 IR 仅支持 C 子集；没有真正落盘并反序列化 `action-tree.txt` 的 `AstTreeCodec`；没有 C 版 `yyparse.c` emitter；没有 Jimple/Soot 后端；Native 后端只是轻量 clang 调用而非完整 trace/report 框架。
+当前项目的主要不足是：语法阶段虽然使用完整 `c99.y`，但语义和 IR 仅支持 C 子集；`action-tree.txt` 已经由 C 版 `yyparse` 落盘生成，但语义阶段仍主要复用 Java 内存中的 AST，没有实现独立的 `AstTreeCodec` 反序列化链路；没有完整 Soot 后端；Native 后端只是轻量 clang 调用而非完整 trace/report 框架。
 
-后续改进方向包括：实现真正 C 版 parser emitter，补充 action-tree 编码与 codec，增加 Jimple/Soot 后端，完善命令行流水线和 trace 文件，并逐步扩展指针、数组、结构体、for/switch 等 C99 语义。
+后续改进方向包括：补充 action-tree 反序列化 codec，使语义阶段可直接从 `action-tree.txt` 恢复 AST；增加 Jimple/Soot 后端，完善命令行流水线和 trace 文件，并逐步扩展指针、数组、结构体、for/switch 等 C99 语义。

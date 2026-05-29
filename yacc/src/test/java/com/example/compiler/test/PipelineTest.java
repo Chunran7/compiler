@@ -4,11 +4,13 @@ import com.example.compiler.CompileResult;
 import com.example.compiler.Compiler;
 import com.example.compiler.ir.IrInstruction;
 import com.example.compiler.semantic.emitter.CSemanticProgramEmitter;
-import com.example.compiler.yacc.ast.AstNode;
+import com.example.compiler.yacc.emitter.CParserProgramEmitter;
+import com.example.compiler.yacc.generator.SeuYaccGenerator;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.io.FileReader;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -117,8 +119,7 @@ public final class PipelineTest {
         Files.writeString(lexDir.resolve("tokens.txt"), emitTokens(result));
         Files.writeString(lexDir.resolve("yylex.c"), currentJavaPipelineNotice("lex", sourceFile));
 
-        Files.writeString(yaccDir.resolve("action-tree.txt"), emitActionTree(result.parseResult().getAstRoot()));
-        Files.writeString(yaccDir.resolve("yyparse.c"), currentJavaPipelineNotice("yacc", sourceFile));
+        emitAndRunCParser(lexDir.resolve("tokens.txt"), yaccDir);
 
         Files.writeString(semanticDir.resolve("core-ast.txt"), result.semanticResult().astRoot().prettyPrint());
         Files.writeString(semanticDir.resolve("symbol-table.txt"), result.semanticResult().symbolTable().prettyPrint());
@@ -148,27 +149,6 @@ public final class PipelineTest {
                 .append(token.lexeme())
                 .append(System.lineSeparator()));
         return out.toString();
-    }
-
-    private static String emitActionTree(AstNode root) {
-        StringBuilder out = new StringBuilder();
-        appendActionTreeNode(out, root);
-        return out.toString();
-    }
-
-    private static void appendActionTreeNode(StringBuilder out, AstNode node) {
-        out.append("NODE")
-                .append('\t').append(nullToEmpty(node.getSymbolName()))
-                .append('\t').append(nullToEmpty(node.getLexeme()))
-                .append('\t').append(node.isSemanticActionNode() ? "1" : "0")
-                .append('\t').append(nullToEmpty(node.getActionCode()))
-                .append('\t').append(node.getProductionId())
-                .append('\t').append(node.getChildren().size())
-                .append(System.lineSeparator());
-
-        for (AstNode child : node.getChildren()) {
-            appendActionTreeNode(out, child);
-        }
     }
 
     private static String emitJimple(List<IrInstruction> instructions) {
@@ -279,6 +259,34 @@ public final class PipelineTest {
         }
     }
 
+    private static void emitAndRunCParser(Path tokensFile, Path yaccDir) throws Exception {
+        SeuYaccGenerator generator;
+        try (FileReader reader = new FileReader(Path.of("resources", "c99.y").toFile())) {
+            generator = new SeuYaccGenerator(reader, true);
+        }
+
+        Path yyparseC = yaccDir.resolve("yyparse.c");
+        Path yyparse = yaccDir.resolve("yyparse");
+        Path actionTree = yaccDir.resolve("action-tree.txt");
+        new CParserProgramEmitter().emitToFile(yyparseC, generator.getGrammar(), generator.getParseTable());
+
+        ProcessResult compile = runProcess(List.of(
+                "gcc", "-std=c99", "-Wall", "-Wextra", "-O2", "-o",
+                yyparse.toString(),
+                yyparseC.toString()
+        ));
+        assertTrue(compile.exitCode == 0, () -> "Failed to compile yyparse.c:" + System.lineSeparator() + compile.output);
+
+        ProcessResult run = runProcess(List.of(
+                yyparse.toAbsolutePath().toString(),
+                tokensFile.toAbsolutePath().toString(),
+                actionTree.toAbsolutePath().toString()
+        ));
+        assertTrue(run.exitCode == 0, () -> "Failed to run yyparse:" + System.lineSeparator() + run.output);
+        assertTrue(Files.exists(actionTree), "yyparse should generate action-tree.txt");
+        assertFalse(Files.readString(actionTree).isBlank(), "action-tree.txt should not be empty");
+    }
+
     private static String compileAndRunSemanticProgram(Path cFile, Path executable) throws IOException, InterruptedException {
         ProcessResult compile = runProcess(List.of(
                 "gcc", "-std=c99", "-Wall", "-Wextra", "-o",
@@ -315,7 +323,9 @@ public final class PipelineTest {
         return ""
                 + "copy inputs -> " + caseRoot.resolve("00-input") + sep
                 + "GeneratedLexer -> " + caseRoot.resolve("01-lex/tokens.txt") + sep
-                + "ParserDriver -> " + caseRoot.resolve("02-yacc/action-tree.txt") + sep
+                + "CParserProgramEmitter -> " + caseRoot.resolve("02-yacc/yyparse.c") + sep
+                + "gcc yyparse.c -o yyparse -> " + caseRoot.resolve("02-yacc/yyparse") + sep
+                + "yyparse tokens.txt action-tree.txt -> " + caseRoot.resolve("02-yacc/action-tree.txt") + sep
                 + "YaccIrBridge.analyze -> " + caseRoot.resolve("03-semantic/core-ast.txt") + sep
                 + "SymbolTable -> " + caseRoot.resolve("03-semantic/symbol-table.txt") + sep
                 + "CSemanticProgramEmitter -> " + caseRoot.resolve("03-semantic/yysemantic.c") + sep
@@ -350,6 +360,8 @@ public final class PipelineTest {
                 + System.lineSeparator()
                 + "- Input: `" + caseRoot.resolve("00-input").resolve(fileName) + "`" + System.lineSeparator()
                 + "- Lex tokens: `" + caseRoot.resolve("01-lex/tokens.txt") + "`" + System.lineSeparator()
+                + "- Yacc C parser source: `" + caseRoot.resolve("02-yacc/yyparse.c") + "`" + System.lineSeparator()
+                + "- Yacc C parser executable: `" + caseRoot.resolve("02-yacc/yyparse") + "`" + System.lineSeparator()
                 + "- Yacc action tree: `" + caseRoot.resolve("02-yacc/action-tree.txt") + "`" + System.lineSeparator()
                 + "- Semantic core AST: `" + caseRoot.resolve("03-semantic/core-ast.txt") + "`" + System.lineSeparator()
                 + "- Symbol table: `" + caseRoot.resolve("03-semantic/symbol-table.txt") + "`" + System.lineSeparator()
@@ -374,10 +386,6 @@ public final class PipelineTest {
         String base = fileName.endsWith(".c") ? fileName.substring(0, fileName.length() - 2) : fileName;
         String sanitized = base.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
         return sanitized.isBlank() ? "case" : sanitized;
-    }
-
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
     }
 
     private static String json(String value) {

@@ -20,6 +20,7 @@ AstNode -> C99AstNormalizer -> CoreAstNode
 CoreAstNode -> CompileTimeSemanticAnalyzer -> SymbolTable
 CoreAstNode -> ThreeAddressIrGenerator -> IrInstruction
 IrInstruction -> LlvmLikeTextEmitter -> LLVM-like IR
+ParseTable -> CParserProgramEmitter -> yyparse.c -> gcc -> yyparse -> action-tree.txt
 CoreAstNode -> CSemanticProgramEmitter -> yysemantic.c -> gcc -> yysemantic -> LLVM IR
 ```
 
@@ -98,9 +99,9 @@ reduce/reduce 冲突当前直接抛异常，因为这通常意味着文法二义
 
 ### 3.8 yyparse.c 生成
 
-当前仓库实际存在的是 `ParserProgramEmitter`，它生成 Java 版独立 parser 源码，而不是 C 版 `yyparse.c`。它会把产生式数组、ACTION/GOTO 表和 LR 分析循环编码进一个 Java 类。
+当前仓库保留了 `ParserProgramEmitter` 生成 Java 版独立 parser 源码，同时新增了 `CParserProgramEmitter` 生成 C 版 `yyparse.c`。C 版生成器会把产生式数组、ACTION/GOTO 表和 LR 分析循环编码进 C 源码。
 
-运行时的核心算法与 `yyparse.c` 方案一致：读取 token 文件或 token 列表，查 ACTION，shift 压栈，reduce 弹栈并建树，accept 输出成功结果。若要严格生成 `yyparse.c`，可以沿用 `ParserProgramEmitter` 的表编码思路，把目标语言换成 C。
+测试流程中，`PipelineTest` 会生成 `generated/test-cases/<case>/02-yacc/yyparse.c`，再用 gcc 编译为 `yyparse`，最后运行 `yyparse tokens.txt action-tree.txt` 生成 `action-tree.txt`。这条链路对应老师流程图中的 yacc -> yyparse.c -> yyparse -> action-tree.txt。
 
 ## 4. Yacc 和 Lex 的接口
 
@@ -126,7 +127,7 @@ INT IDENTIFIER ASSIGN CONSTANT SEMI EOF
 
 这样做的好处是语法分析阶段只负责识别结构并保留动作位置，语义阶段再决定如何解释动作。它比“在 yyparse 中直接生成 LLVM IR”更清晰：语法结构、语义检查、中间代码生成三件事不会混在一起。
 
-当前仓库没有单独 `AstTreeCodec` 文件反序列化 `action-tree.txt`；真实实现是在内存中由 `ParserDriver` 直接得到 `AstNode`。如果以后要落盘为 `action-tree.txt`，可以把 `AstNode.prettyPrint()` 或结构化 JSON 作为编码格式，再写 codec 反读。
+当前仓库会由 C 版 `yyparse` 落盘生成 `action-tree.txt`，文件中按先序保存节点符号、词素、语义动作标记、动作代码、产生式编号和子节点数量。当前语义阶段仍主要复用 Java 内存中的 `AstNode`，尚未实现单独的 `AstTreeCodec` 从 `action-tree.txt` 反序列化回 AST。
 
 ## 6. Core AST 设计
 
@@ -242,7 +243,7 @@ bash run-tests.sh
 - `generated/final/program.exe`：clang 从 LLVM IR 生成的本机可执行文件。
 - `generated/parse-tree.md`、`generated/core-ast.md`：`AstMarkdownEmitter` 的调试输出。
 
-当前仓库没有 `commands.log`、`pipeline-trace.json`、`FLOWCHART_EVIDENCE.md` 的真实生成逻辑。如果答辩要展示流程证据，应以测试输出和生成文件为依据，或后续补充 trace writer。
+当前测试流程会为每个 C 用例生成 `commands.log`、`pipeline-trace.json`、`FLOWCHART_EVIDENCE.md`，用于展示从输入、tokens、yyparse/action-tree、语义、IR 到 Soot skipped 标记的阶段证据。
 
 ## 13. 当前限制
 
@@ -292,10 +293,10 @@ bash run-tests.sh
     答：先看终结符和产生式的优先级，优先级高者胜；同级看结合性，左结合规约、右结合移进、非结合报错；缺少优先级时默认 shift。
 
 13. 问：`yyparse.c` 是如何生成的？
-    答：当前仓库实际是 `ParserProgramEmitter` 生成 Java parser 源码。算法上等价于把产生式数组和 ACTION/GOTO 表写进目标程序，再运行表驱动分析循环。若要生成 C 版，只需把目标语言替换为 C。
+   答：`CParserProgramEmitter` 会把产生式数组、ACTION/GOTO 表和表驱动 LR 分析循环写进 C 源码，生成 `yyparse.c`。测试中会用 gcc 编译它，然后运行 `yyparse tokens.txt action-tree.txt` 得到 action-tree。
 
 14. 问：action-tree.txt 是什么？
-    答：概念上是带语义动作节点的语法树。当前实现是在内存中用 AstNode 表示，没有单独 codec 文件。动作节点来自 `__ACT_n -> ε` 合成产生式。
+    答：它是带语义动作节点的语法树落盘文件，由 C 版 `yyparse` 生成。动作节点来自 `__ACT_n -> ε` 合成产生式，文件记录节点符号、词素、动作代码、产生式编号和子节点数量。
 
 15. 问：Parse Tree 和 Core AST 有什么区别？
     答：Parse Tree 完整反映文法推导，节点很多；Core AST 去掉语法噪声，只保留函数、声明、表达式、控制流等语义信息。
@@ -334,7 +335,7 @@ bash run-tests.sh
     答：难点在于把完整 C99 语法分析结果压缩成可用于语义检查和 IR 的 Core AST，同时保持 LR/LALR 表构造和冲突处理正确。
 
 27. 问：如果继续扩展，下一步做什么？
-    答：优先补齐严格流程：生成真正 `yyparse.c`、落盘 action-tree 并实现 codec、补 Jimple/Soot 后端，然后再逐步扩展数组、指针和更多控制流语义。
+    答：优先补齐 action-tree 反序列化 codec、完善 Jimple/Soot 后端，然后再逐步扩展数组、指针和更多控制流语义。
 
 ## 15. 代码 Review 导读
 
