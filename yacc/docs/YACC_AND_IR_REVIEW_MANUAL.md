@@ -4,7 +4,7 @@
 
 本项目中，我负责的核心范围可以分成两段：Yacc 语法分析程序生成部分，以及语义分析/中间代码生成部分。Lex 部分不是本手册重点，只需要知道它把 C 源码转换成 token 序列；Yacc 部分不直接分析原始 `test.c` 字符流，而是读取 token。
 
-当前仓库实际主入口是 `com.example.compiler.Compiler`，不是 `CompilerPipeline`。源码中也没有独立的 `AstTreeCodec`、`JimpleTextEmitter`、`NativeBackend` 类。已有实现更像“Java 内部表驱动主流程 + yysemantic.c 生成路线”：`resources/c99.y -> SeuYaccGenerator -> ParserDriver -> AstNode -> C99AstNormalizer/CoreAstNode -> SymbolTable -> IR -> CSemanticProgramEmitter/yysemantic.c`。
+当前仓库实际主入口是 `com.example.compiler.Compiler`，不是 `CompilerPipeline`。Yacc 流程已经包含 C 版 `yyparse.c` 生成与 `AstTreeCodec` 反序列化：`resources/c99.y -> SeuYaccGenerator -> CParserProgramEmitter -> yyparse.c -> yyparse -> action-tree.txt -> AstTreeCodec -> AstNode -> C99AstNormalizer/CoreAstNode -> SymbolTable -> IR -> CSemanticProgramEmitter/yysemantic.c`。源码中仍没有独立的 `JimpleTextEmitter`、`NativeBackend` 类。
 
 Yacc 使用完整 `resources/c99.y` 的意义是：语法分析阶段可以用完整 C99 文法构造分析表，并接受较完整的语法结构。中间代码生成只支持项目定义的 C 子集，这是合理边界，因为完整 C99 的指针、数组、结构体、typedef、复杂声明、类型转换和库调用都需要更大的类型系统与运行时支持。
 
@@ -127,7 +127,7 @@ INT IDENTIFIER ASSIGN CONSTANT SEMI EOF
 
 这样做的好处是语法分析阶段只负责识别结构并保留动作位置，语义阶段再决定如何解释动作。它比“在 yyparse 中直接生成 LLVM IR”更清晰：语法结构、语义检查、中间代码生成三件事不会混在一起。
 
-当前仓库会由 C 版 `yyparse` 落盘生成 `action-tree.txt`，文件中按先序保存节点符号、词素、语义动作标记、动作代码、产生式编号和子节点数量。当前语义阶段仍主要复用 Java 内存中的 `AstNode`，尚未实现单独的 `AstTreeCodec` 从 `action-tree.txt` 反序列化回 AST。
+当前仓库会由 C 版 `yyparse` 落盘生成 `action-tree.txt`，文件中按先序保存节点符号、词素、语义动作标记、动作代码、产生式编号和子节点数量。`AstTreeCodec` 负责从 `action-tree.txt` 反序列化恢复 `AstNode`，测试中的语义和 IR 阶段使用恢复后的 AST 继续执行。
 
 ## 6. Core AST 设计
 
@@ -335,7 +335,7 @@ bash run-tests.sh
     答：难点在于把完整 C99 语法分析结果压缩成可用于语义检查和 IR 的 Core AST，同时保持 LR/LALR 表构造和冲突处理正确。
 
 27. 问：如果继续扩展，下一步做什么？
-    答：优先补齐 action-tree 反序列化 codec、完善 Jimple/Soot 后端，然后再逐步扩展数组、指针和更多控制流语义。
+    答：优先完善 Jimple/Soot 后端，然后再逐步扩展数组、指针和更多控制流语义。
 
 ## 15. 代码 Review 导读
 

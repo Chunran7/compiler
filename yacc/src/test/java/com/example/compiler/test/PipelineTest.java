@@ -2,8 +2,14 @@ package com.example.compiler.test;
 
 import com.example.compiler.CompileResult;
 import com.example.compiler.Compiler;
+import com.example.compiler.ir.IrGenerationResult;
 import com.example.compiler.ir.IrInstruction;
+import com.example.compiler.ir.LlvmLikeTextEmitter;
+import com.example.compiler.ir.YaccIrBridge;
+import com.example.compiler.semantic.SemanticResult;
 import com.example.compiler.semantic.emitter.CSemanticProgramEmitter;
+import com.example.compiler.yacc.ast.AstNode;
+import com.example.compiler.yacc.ast.AstTreeCodec;
 import com.example.compiler.yacc.emitter.CParserProgramEmitter;
 import com.example.compiler.yacc.generator.SeuYaccGenerator;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -119,20 +125,25 @@ public final class PipelineTest {
         Files.writeString(lexDir.resolve("tokens.txt"), emitTokens(result));
         Files.writeString(lexDir.resolve("yylex.c"), currentJavaPipelineNotice("lex", sourceFile));
 
-        emitAndRunCParser(lexDir.resolve("tokens.txt"), yaccDir);
+        Path actionTree = emitAndRunCParser(lexDir.resolve("tokens.txt"), yaccDir);
+        AstNode restoredParseTree = AstTreeCodec.read(actionTree);
+        YaccIrBridge bridge = new YaccIrBridge();
+        SemanticResult semanticResult = bridge.analyze(restoredParseTree);
+        IrGenerationResult irResult = bridge.generate(semanticResult);
+        String restoredIrText = new LlvmLikeTextEmitter().emit(irResult);
 
-        Files.writeString(semanticDir.resolve("core-ast.txt"), result.semanticResult().astRoot().prettyPrint());
-        Files.writeString(semanticDir.resolve("symbol-table.txt"), result.semanticResult().symbolTable().prettyPrint());
+        Files.writeString(semanticDir.resolve("core-ast.txt"), semanticResult.astRoot().prettyPrint());
+        Files.writeString(semanticDir.resolve("symbol-table.txt"), semanticResult.symbolTable().prettyPrint());
         Files.writeString(
                 semanticDir.resolve("yysemantic.c"),
-                new CSemanticProgramEmitter().emit(result.semanticResult().astRoot())
+                new CSemanticProgramEmitter().emit(semanticResult.astRoot())
         );
 
         Path yysemantic = semanticDir.resolve("yysemantic");
         Path outputLl = irDir.resolve("output.ll");
         String semanticRunOutput = compileAndRunSemanticProgram(semanticDir.resolve("yysemantic.c"), yysemantic);
-        Files.writeString(outputLl, semanticRunOutput == null ? result.irText() : semanticRunOutput);
-        Files.writeString(irDir.resolve("output.jimple"), emitJimple(result.semanticResult().preliminaryIr()));
+        Files.writeString(outputLl, semanticRunOutput == null ? restoredIrText : semanticRunOutput);
+        Files.writeString(irDir.resolve("output.jimple"), emitJimple(semanticResult.preliminaryIr()));
         Files.writeString(sootDir.resolve("soot-skipped.txt"), "SOOT_JAR not available; Soot stage not requested by Maven tests."
                 + System.lineSeparator());
 
@@ -259,7 +270,7 @@ public final class PipelineTest {
         }
     }
 
-    private static void emitAndRunCParser(Path tokensFile, Path yaccDir) throws Exception {
+    private static Path emitAndRunCParser(Path tokensFile, Path yaccDir) throws Exception {
         SeuYaccGenerator generator;
         try (FileReader reader = new FileReader(Path.of("resources", "c99.y").toFile())) {
             generator = new SeuYaccGenerator(reader, true);
@@ -285,6 +296,7 @@ public final class PipelineTest {
         assertTrue(run.exitCode == 0, () -> "Failed to run yyparse:" + System.lineSeparator() + run.output);
         assertTrue(Files.exists(actionTree), "yyparse should generate action-tree.txt");
         assertFalse(Files.readString(actionTree).isBlank(), "action-tree.txt should not be empty");
+        return actionTree;
     }
 
     private static String compileAndRunSemanticProgram(Path cFile, Path executable) throws IOException, InterruptedException {
@@ -326,7 +338,8 @@ public final class PipelineTest {
                 + "CParserProgramEmitter -> " + caseRoot.resolve("02-yacc/yyparse.c") + sep
                 + "gcc yyparse.c -o yyparse -> " + caseRoot.resolve("02-yacc/yyparse") + sep
                 + "yyparse tokens.txt action-tree.txt -> " + caseRoot.resolve("02-yacc/action-tree.txt") + sep
-                + "YaccIrBridge.analyze -> " + caseRoot.resolve("03-semantic/core-ast.txt") + sep
+                + "AstTreeCodec action-tree.txt -> AstNode" + sep
+                + "YaccIrBridge.analyze(restored AstNode) -> " + caseRoot.resolve("03-semantic/core-ast.txt") + sep
                 + "SymbolTable -> " + caseRoot.resolve("03-semantic/symbol-table.txt") + sep
                 + "CSemanticProgramEmitter -> " + caseRoot.resolve("03-semantic/yysemantic.c") + sep
                 + "gcc yysemantic.c -o yysemantic: " + (semanticProgramRan ? "success" : "skipped or failed; output.ll uses Java LLVM emitter") + sep

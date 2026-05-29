@@ -102,6 +102,6 @@ LLVM 风格 IR 中，局部变量通过 `alloca` 建立栈槽，赋值通过 `st
 
 ## 13. 当前不足与改进方向
 
-当前项目的主要不足是：语法阶段虽然使用完整 `c99.y`，但语义和 IR 仅支持 C 子集；`action-tree.txt` 已经由 C 版 `yyparse` 落盘生成，但语义阶段仍主要复用 Java 内存中的 AST，没有实现独立的 `AstTreeCodec` 反序列化链路；没有完整 Soot 后端；Native 后端只是轻量 clang 调用而非完整 trace/report 框架。
+当前项目的主要不足是：语法阶段虽然使用完整 `c99.y`，但语义和 IR 仅支持 C 子集；`action-tree.txt` 已经由 C 版 `yyparse` 落盘生成，并可通过 `AstTreeCodec` 反序列化恢复 AST，但还没有完整 Soot 后端；Native 后端只是轻量 clang 调用而非完整 trace/report 框架。
 
-后续改进方向包括：补充 action-tree 反序列化 codec，使语义阶段可直接从 `action-tree.txt` 恢复 AST；增加 Jimple/Soot 后端，完善命令行流水线和 trace 文件，并逐步扩展指针、数组、结构体、for/switch 等 C99 语义。
+后续改进方向包括：增加 Jimple/Soot 后端，完善命令行流水线和 trace 文件，并逐步扩展指针、数组、结构体、for/switch 等 C99 语义。
