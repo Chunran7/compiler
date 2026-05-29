@@ -47,6 +47,8 @@ public final class CanonicalCollectionBuilder {
         stateIds.put(startState, 0);
         queue.add(startState);
 
+        // 使用 BFS 从 0 号状态开始扩展整个 LR 自动机。
+        // 每弹出一个状态，就统计该状态中所有“点后符号”，这些符号就是可能的出边。
         while (!queue.isEmpty()) {
             Set<LR1Item> state = queue.remove();
             int stateId = stateIds.get(state);
@@ -60,6 +62,8 @@ public final class CanonicalCollectionBuilder {
             }
 
             for (Symbol symbol : nextSymbols) {
+                // goto(I, X) 表示状态 I 读入符号 X 后到达的新项目集。
+                // 如果项目集以前没出现过，就分配新状态号并放入队列继续扩展。
                 Set<LR1Item> nextState = closureBuilder.goTo(state, symbol);
                 if (nextState.isEmpty()) {
                     continue;

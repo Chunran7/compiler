@@ -46,6 +46,8 @@ public final class ThreeAddressIrGenerator {
             throw new IllegalStateException("Expected function node but got " + node.getKind());
         }
 
+        // Core AST 中函数节点的最后一个孩子是函数体 BLOCK，
+        // 前面的孩子都是 PARAMETER。这里先收集参数名，写入函数入口指令。
         List<String> params = new ArrayList<>();
         for (int i = 0; i < node.getChildren().size() - 1; i++) {
             CoreAstNode param = node.getChildren().get(i);
@@ -81,6 +83,8 @@ public final class ThreeAddressIrGenerator {
     private void generateDeclaration(CoreAstNode node) {
         expectKind(node, AstKind.DECLARATION);
         if (node.getChildren().size() >= 2) {
+            // 声明带初始化时才生成赋值 IR；单纯 int a; 不需要运行时动作，
+            // 变量的 alloca 会在 LLVM 发射阶段第一次看到变量名时生成。
             CoreAstNode identifier = node.getChildren().get(0);
             String value = generateExpression(node.getChildren().get(1));
             instructions.add(IrInstruction.assign(identifier.getText(), value));
@@ -115,6 +119,7 @@ public final class ThreeAddressIrGenerator {
 
         if (node.getChildren().size() == 2) {
             String endLabel = nextLabel();
+            // 无 else 的 if：条件为假直接跳到结束标签；条件为真则顺序执行 then 分支。
             instructions.add(IrInstruction.ifFalseGoTo(condition, endLabel));
             generateStatement(node.getChildren().get(1));
             instructions.add(IrInstruction.label(endLabel));
@@ -124,6 +129,7 @@ public final class ThreeAddressIrGenerator {
         String elseLabel = nextLabel();
         String endLabel = nextLabel();
 
+        // 有 else 的 if：false 跳到 elseLabel；then 执行完需要跳过 else 到 endLabel。
         instructions.add(IrInstruction.ifFalseGoTo(condition, elseLabel));
         generateStatement(node.getChildren().get(1));
         instructions.add(IrInstruction.goTo(endLabel));
@@ -138,6 +144,8 @@ public final class ThreeAddressIrGenerator {
         String startLabel = nextLabel();
         String endLabel = nextLabel();
 
+        // while 翻译为典型的 label + 条件跳转 + body + 回边。
+        // startLabel 是循环头，endLabel 是条件为假时跳出的出口。
         instructions.add(IrInstruction.label(startLabel));
         String condition = generateExpression(node.getChildren().get(0));
         instructions.add(IrInstruction.ifFalseGoTo(condition, endLabel));
@@ -148,6 +156,8 @@ public final class ThreeAddressIrGenerator {
 
     private String generateExpression(CoreAstNode node) {
         return switch (node.getKind()) {
+            // 标识符和整数字面量可以直接作为操作数；是否需要 load
+            // 由 LLVM 发射器根据“变量名/立即数/临时变量”再决定。
             case IDENTIFIER, INT_LITERAL -> node.getText();
             case BINARY_EXPR -> generateBinary(node);
             case FUNCTION_CALL -> emitFunctionCall(node, true);
@@ -160,6 +170,7 @@ public final class ThreeAddressIrGenerator {
         String right = generateExpression(node.getChildren().get(1));
         String temp = nextTemp();
 
+        // 二元表达式必须产生一个临时变量，供外层表达式或 return/assign 使用。
         instructions.add(IrInstruction.binary(mapBinaryOp(node.getText()), temp, left, right));
         return temp;
     }
@@ -170,6 +181,7 @@ public final class ThreeAddressIrGenerator {
             args.add(generateExpression(arg));
         }
 
+        // 表达式位置的调用需要保存返回值；单独的表达式语句调用可以丢弃返回值。
         String target = withResult ? nextTemp() : null;
         instructions.add(IrInstruction.call(target, node.getText(), args));
         return target;

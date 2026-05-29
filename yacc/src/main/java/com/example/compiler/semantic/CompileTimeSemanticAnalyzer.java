@@ -53,6 +53,8 @@ public final class CompileTimeSemanticAnalyzer {
                 hasMain = true;
             }
 
+            // 第一遍先登记所有函数签名，使得 main 中可以调用定义在后面的函数。
+            // 这里只登记函数名和参数数量，不进入函数体检查变量。
             symbolTable.declareFunction(name, parameterCount(function));
         }
 
@@ -61,6 +63,7 @@ public final class CompileTimeSemanticAnalyzer {
         }
 
         for (CoreAstNode function : node.getChildren()) {
+            // 第二遍再逐个分析函数体。这样函数调用检查可以查询完整函数表。
             analyzeFunction(function, symbolTable);
         }
     }
@@ -80,6 +83,8 @@ public final class CompileTimeSemanticAnalyzer {
 
         symbolTable.enterScope();
         try {
+            // 参数属于函数作用域，和局部变量使用同一个 SymbolTable 栈。
+            // 若参数重名，declare 会按“同一作用域重复声明”报错。
             for (int i = 0; i < node.getChildren().size() - 1; i++) {
                 CoreAstNode param = node.getChildren().get(i);
                 expectKind(param, AstKind.PARAMETER);
@@ -96,6 +101,8 @@ public final class CompileTimeSemanticAnalyzer {
     private void analyzeBlock(CoreAstNode node, SymbolTable symbolTable) {
         expectKind(node, AstKind.BLOCK);
 
+        // 每个复合语句块都创建独立作用域，使内层变量可以遮蔽外层变量，
+        // 但同一块内重复声明仍然会被 SymbolTable.declare 拦截。
         symbolTable.enterScope();
         try {
             for (CoreAstNode child : node.getChildren()) {
@@ -128,6 +135,9 @@ public final class CompileTimeSemanticAnalyzer {
 
         CoreAstNode identifier = node.getChildren().get(0);
         expectKind(identifier, AstKind.IDENTIFIER);
+        // 声明先写入当前作用域，再检查初始化表达式。
+        // 这样可允许类似 int a = a; 被未声明检查捕获为读取当前变量，
+        // 具体是否允许自引用可在这里进一步收紧。
         symbolTable.declare(identifier.getText(), SymbolType.INT);
 
         if (node.getChildren().size() >= 2) {
@@ -144,6 +154,7 @@ public final class CompileTimeSemanticAnalyzer {
 
         CoreAstNode identifier = node.getChildren().get(0);
         expectKind(identifier, AstKind.IDENTIFIER);
+        // 赋值左侧必须已经声明；右侧表达式会递归检查其中的变量和函数调用。
         ensureDeclared(identifier.getText(), symbolTable);
         analyzeExpression(node.getChildren().get(1), symbolTable);
     }

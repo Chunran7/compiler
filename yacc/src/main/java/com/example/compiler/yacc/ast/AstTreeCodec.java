@@ -66,17 +66,23 @@ public final class AstTreeCodec {
         }
 
         if (isAction) {
+            // 动作节点来自 __ACT_n -> ε，语法上一定是空产生式，
+            // 因此文件中不允许它带子节点。
             if (childCount != 0) {
                 throw new IllegalArgumentException("Semantic action node cannot have children: " + line);
             }
             return AstNode.semanticAction(symbol, actionCode, productionId);
         }
 
+        // action-tree.txt 是先序遍历格式：父节点行之后紧跟 childCount 个子树。
+        // 递归读取即可恢复完整树形结构，并由 AstNode 构造器回填父子关系。
         List<AstNode> children = new ArrayList<>();
         for (int i = 0; i < childCount; i++) {
             children.add(readNode(cursor));
         }
 
+        // productionId < 0 且没有孩子的节点是终结符叶子；
+        // 否则是某条产生式规约出的非终结符节点。
         if (childCount == 0 && productionId < 0) {
             return AstNode.leaf(symbol, lexeme);
         }

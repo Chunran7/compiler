@@ -65,6 +65,8 @@ public final class ParserDriver {
                 return ParseResult.failure(reductions, "Cannot map token to terminal: " + currentToken);
             }
 
+            // 表驱动 LR 分析的核心：当前状态 + 当前终结符唯一决定下一步动作。
+            // 若 ACTION 为空，说明 token 流无法被当前文法接受。
             Action action = parseTable.getAction(currentState, currentTerminal);
             if (action == null) {
                 return ParseResult.failure(
@@ -74,6 +76,8 @@ public final class ParserDriver {
             }
 
             if (action.type() == ActionType.SHIFT) {
+                // SHIFT：消费一个输入 token，把终结符和叶子节点压栈，并进入目标状态。
+                // astStack 与 symbolStack 保持同步，后续 reduce 时可按右部长度弹出孩子。
                 symbolStack.push(currentTerminal);
                 astStack.push(AstNode.leaf(currentTerminal.getName(), currentToken.lexeme()));
                 stateStack.push(action.targetState());
@@ -87,6 +91,8 @@ public final class ParserDriver {
 
                 LinkedList<AstNode> children = new LinkedList<>();
 
+                // REDUCE：右部有几个符号，就从状态栈/符号栈/AST 栈弹出几个元素。
+                // children 用 addFirst 还原原始从左到右顺序，因为栈弹出顺序是反的。
                 for (int i = 0; i < popCount; i++) {
                     if (stateStack.isEmpty() || symbolStack.isEmpty() || astStack.isEmpty()) {
                         return ParseResult.failure(reductions, "Stack underflow during reduce: " + production);
@@ -100,6 +106,9 @@ public final class ParserDriver {
                 NonTerminal left = production.getLeft();
                 AstNode parent;
 
+                // __ACT_n -> ε 是 YaccParser 为语义动作插入的合成产生式。
+                // 普通产生式生成非终结符节点；动作产生式生成 semanticAction 节点，
+                // 这样 action-tree 可以保留动作代码和所在位置。
                 if (isSemanticActionProduction(production)) {
                     parent = AstNode.semanticAction(
                             left.getName(),
@@ -114,6 +123,8 @@ public final class ParserDriver {
                     );
                 }
 
+                // 规约成左部非终结符后，根据“规约前的新栈顶状态”和左部查 GOTO。
+                // 查到的状态就是 LR 自动机规约后应进入的状态。
                 Integer gotoState = parseTable.getGoto(stateStack.peek(), left);
                 if (gotoState == null) {
                     return ParseResult.failure(
@@ -130,6 +141,7 @@ public final class ParserDriver {
             }
 
             if (action.type() == ActionType.ACCEPT) {
+                // ACCEPT：输入符合文法，AST 栈顶即完整 translation_unit 语法树。
                 AstNode root = astStack.isEmpty() ? null : astStack.peek();
                 return ParseResult.success(reductions, root);
             }

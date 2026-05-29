@@ -33,6 +33,8 @@ public final class LALRConverter {
 
         for (int oldStateId = 0; oldStateId < lr1.states().size(); oldStateId++) {
             Set<LR1Item> state = lr1.states().get(oldStateId);
+            // coreKey 只包含“产生式编号 + 点位置”，故意忽略 lookahead。
+            // core 相同的 LR(1) 状态在 LALR 中合并，lookahead 集合通过 addAll 取并集。
             String coreKey = coreSetKey(state);
             Integer newStateId = coreGroupIds.get(coreKey);
             if (newStateId == null) {
@@ -48,6 +50,8 @@ public final class LALRConverter {
         for (Map.Entry<Integer, Map<Symbol, Integer>> entry : lr1.transitions().entrySet()) {
             Integer newFrom = oldToNew.get(entry.getKey());
             for (Map.Entry<Symbol, Integer> t : entry.getValue().entrySet()) {
+                // 状态合并后，原来的边 oldFrom --X--> oldTo 必须重映射为
+                // newFrom --X--> newTo，否则后续 ParseTable 会引用不存在的旧状态号。
                 Integer newTo = oldToNew.get(t.getValue());
                 mergedTransitions
                         .computeIfAbsent(newFrom, key -> new LinkedHashMap<>())

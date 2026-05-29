@@ -89,6 +89,8 @@ public final class CParserProgramEmitter {
     private void emitProductionTables(StringBuilder out, Grammar grammar) {
         List<Production> productions = grammar.getProductions();
 
+        // 产生式表是 yyparse.c 执行 REDUCE 的依据：
+        // LHS 用于查 GOTO，RHS_LEN 决定弹栈数量，ACTION_CODE 用于输出动作节点。
         out.append("static const int PRODUCTION_COUNT = ").append(productions.size()).append(";\n");
 
         out.append("static const char* PRODUCTION_LHS[] = {\n");
@@ -121,6 +123,8 @@ public final class CParserProgramEmitter {
     }
 
     private void emitActionTable(StringBuilder out, ParseTable parseTable) {
+        // ACTION 表在 C 程序中采用稀疏数组编码。运行时通过线性查找
+        // (state, terminal) 对应的 shift/reduce/accept 动作；课程规模下足够清晰。
         List<Map.Entry<Integer, Map<Terminal, Action>>> rows = parseTable.actionRows()
                 .entrySet()
                 .stream()
@@ -161,6 +165,8 @@ public final class CParserProgramEmitter {
     }
 
     private void emitGotoTable(StringBuilder out, ParseTable parseTable) {
+        // GOTO 表同样采用稀疏数组编码，用于 REDUCE 后根据
+        // “规约前的新栈顶状态 + 产生式左部”跳转到下一个状态。
         List<Map.Entry<Integer, Map<NonTerminal, Integer>>> rows = parseTable.gotoRows()
                 .entrySet()
                 .stream()
@@ -210,6 +216,8 @@ public final class CParserProgramEmitter {
                 static Node* make_node(const char* symbol, const char* lexeme, int is_action,
                                        const char* action_code, int production_id,
                                        int child_count, Node** children) {
+                    /* Node 是 action-tree.txt 的内存形态。普通叶子节点保存 token，
+                       非终结符节点保存 production_id 和 children，动作节点额外保存 action_code。 */
                     Node* node = (Node*)calloc(1, sizeof(Node));
                     if (node == NULL) {
                         fprintf(stderr, "out of memory\\n");
@@ -244,6 +252,8 @@ public final class CParserProgramEmitter {
                 }
 
                 static Token* read_tokens(const char* path, int* out_count) {
+                    /* tokens.txt 每行格式为 TOKEN<TAB>lexeme。
+                       yyparse.c 只关心 token 类型做语法分析，同时保留 lexeme 写入叶子节点。 */
                     FILE* file = fopen(path, "r");
                     if (file == NULL) {
                         perror(path);
@@ -290,6 +300,8 @@ public final class CParserProgramEmitter {
 
                 static void write_node(FILE* out, const Node* node) {
                     if (node == NULL) return;
+                    /* action-tree.txt 使用先序遍历：先写当前节点，再写所有子树。
+                       child_count 让 AstTreeCodec 能够无歧义地递归恢复树结构。 */
                     fprintf(out, "NODE\\t%s\\t%s\\t%d\\t%s\\t%d\\t%d\\n",
                             node->symbol == NULL ? "" : node->symbol,
                             node->lexeme == NULL ? "" : node->lexeme,
@@ -335,6 +347,7 @@ public final class CParserProgramEmitter {
                         }
 
                         if (action->kind == ACT_SHIFT) {
+                            /* SHIFT：消费当前 token，压入终结符叶子节点，并进入目标状态。 */
                             if (state_top >= state_capacity || symbol_top >= state_capacity || node_top >= node_capacity) {
                                 fprintf(stderr, "parser stack overflow\\n");
                                 return 2;
@@ -347,6 +360,7 @@ public final class CParserProgramEmitter {
                         }
 
                         if (action->kind == ACT_REDUCE) {
+                            /* REDUCE：按产生式右部长度弹栈，组装父节点，再根据产生式左部查 GOTO。 */
                             int production_id = action->value;
                             if (production_id < 0 || production_id >= PRODUCTION_COUNT) {
                                 fprintf(stderr, "Invalid production id: %d\\n", production_id);
@@ -369,6 +383,7 @@ public final class CParserProgramEmitter {
                             }
 
                             for (int i = rhs_len - 1; i >= 0; i--) {
+                                /* 从右向左填 children，抵消栈弹出顺序，保证 action-tree 中孩子仍是源码顺序。 */
                                 state_top--;
                                 free(symbols[--symbol_top]);
                                 children[i] = nodes[--node_top];
@@ -398,6 +413,7 @@ public final class CParserProgramEmitter {
                         }
 
                         if (action->kind == ACT_ACCEPT) {
+                            /* ACCEPT：语法分析完成，AST 栈顶就是完整 translation_unit。 */
                             FILE* out = fopen(output_path, "w");
                             if (out == NULL) {
                                 perror(output_path);

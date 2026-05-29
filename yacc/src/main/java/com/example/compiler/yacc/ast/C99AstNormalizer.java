@@ -53,6 +53,8 @@ public final class C99AstNormalizer {
         AstNode inner = children(node).get(0);
         switch (inner.getSymbolName()) {
             case "function_definition" -> out.add(normalizeFunctionDefinition(inner));
+            // 当前 IR 后端以函数为编译单元。全局变量、typedef、结构体等 C99
+            // 外部声明可被语法阶段识别，但暂不进入 Core AST 语义模型。
             case "declaration" -> { /* skip global declarations for now */ }
             default -> { /* skip other external declarations */ }
         }
@@ -87,6 +89,8 @@ public final class C99AstNormalizer {
         List<CoreAstNode> children = new ArrayList<>(params);
         children.add(block);
 
+        // main 在 Core AST 中单独标记，便于语义阶段检查入口函数是否存在。
+        // 普通函数和 main 的 IR 生成方式基本一致。
         if ("main".equals(name)) {
             return CoreAstNode.node(AstKind.MAIN_FUNCTION, name, children);
         }

@@ -29,6 +29,8 @@ public final class LlvmLikeTextEmitter {
         for (IrInstruction instruction : result.getInstructions()) {
             switch (instruction.getOp()) {
                 case FUNCTION_BEGIN -> {
+                    // FUNCTION_BEGIN 开启一个新的 LLVM 函数块。
+                    // 如果上一个函数没有显式 FUNCTION_END，也先补全，避免输出结构损坏。
                     if (function != null) {
                         function.finish(sb);
                     }
@@ -36,6 +38,7 @@ public final class LlvmLikeTextEmitter {
                     function.begin(sb);
                 }
                 case FUNCTION_END -> {
+                    // FUNCTION_END 负责补齐默认 return 并写出右花括号。
                     if (function != null) {
                         function.finish(sb);
                         function = null;
@@ -71,6 +74,8 @@ public final class LlvmLikeTextEmitter {
         }
 
         private void begin(StringBuilder sb) {
+            // 参数在 LLVM 文本中以 SSA 形式进入函数。为了复用变量读写逻辑，
+            // 进入 entry 后立即给每个参数分配栈槽并 store 一次。
             sb.append("define i32 @").append(name).append("(");
             for (int i = 0; i < params.size(); i++) {
                 if (i > 0) {
@@ -88,6 +93,8 @@ public final class LlvmLikeTextEmitter {
         }
 
         private void finish(StringBuilder sb) {
+            // 若源程序函数体没有显式 return，补一个 ret i32 0，
+            // 保证输出的 LLVM-like 函数结构完整。
             if (!currentBlockTerminated) {
                 emitLine(sb, "ret i32 0");
             }
@@ -97,6 +104,8 @@ public final class LlvmLikeTextEmitter {
         private void emit(StringBuilder sb, IrInstruction instruction) {
             switch (instruction.getOp()) {
                 case ASSIGN -> {
+                    // 三地址赋值 target = value：
+                    // target 一律映射成栈槽，右值可能是立即数、临时值或变量 load。
                     ensureSlot(sb, instruction.getResult());
                     String value = valueAsI32(sb, instruction.getArg1());
                     emitLine(sb, "store i32 " + value + ", ptr " + slots.get(instruction.getResult()));
@@ -119,6 +128,8 @@ public final class LlvmLikeTextEmitter {
                     currentBlockTerminated = false;
                 }
                 case LT, LE, GT, GE, EQ, NE -> {
+                    // 比较指令在 LLVM 中产生 i1；记录到 i1Temps，
+                    // 后续若把它当作 i32 使用，需要 zext 扩展。
                     String left = valueAsI32(sb, instruction.getArg1());
                     String right = valueAsI32(sb, instruction.getArg2());
                     emitLine(sb, "%" + instruction.getResult() + " = icmp "
@@ -127,6 +138,8 @@ public final class LlvmLikeTextEmitter {
                     currentBlockTerminated = false;
                 }
                 case LABEL -> {
+                    // LLVM 基本块不能无故落入一个新 label。若上一块没有终结指令，
+                    // 自动补 br label，保证控制流显式。
                     if (!currentBlockTerminated) {
                         emitLine(sb, "br label %" + instruction.getResult());
                     }
@@ -157,6 +170,7 @@ public final class LlvmLikeTextEmitter {
                 return;
             }
             if (!slots.containsKey(variable)) {
+                // 局部变量第一次出现时才分配栈槽，避免提前遍历函数体收集变量。
                 String slot = "%" + variable + ".addr";
                 slots.put(variable, slot);
                 emitLine(sb, slot + " = alloca i32, align 4");
@@ -169,6 +183,8 @@ public final class LlvmLikeTextEmitter {
             }
             if (isTemp(value)) {
                 if (i1Temps.contains(value)) {
+                    // 比较结果是 i1，但算术、store、return 使用 i32；
+                    // 这里按需要插入 zext。
                     String extended = nextInternalTemp();
                     emitLine(sb, extended + " = zext i1 %" + value + " to i32");
                     return extended;
