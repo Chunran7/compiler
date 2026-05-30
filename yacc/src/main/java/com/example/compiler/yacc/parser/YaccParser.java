@@ -16,10 +16,36 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Yacc 规则文件解析器。
+ *
+ * <p>本类位于语法分析程序生成器的最前端：输入是 {@code resources/c99.y}
+ * 这样的 yacc/bison 风格语法规则文件，输出是项目内部的 {@link Grammar}。
+ * 它由 {@code SeuYaccGenerator} 调用，下游会继续计算 FIRST 集、构造
+ * LR(1)/LALR 项目集并生成 ACTION/GOTO 分析表。</p>
+ *
+ * <p>报告中可把它对应为“语法规则 c99.y -> YACC 前端解析”模块。
+ * 注意：这里解析的是语法规则文件，不是待编译的 C 源程序；C 源程序先由
+ * Lex 变成 token 序列，再交给语法分析驱动。</p>
+ */
 public final class YaccParser {
     private YaccParser() {
     }
 
+    /**
+     * 将 yacc 文本解析为 Grammar。
+     *
+     * <p>关键步骤包括：
+     * 1. 读取声明区的 {@code %token/%start/%left/%right/%nonassoc}；
+     * 2. 将规则区按顶层分号和竖线拆成产生式；
+     * 3. 把 yacc 字符字面量（如 {@code '('}）转成项目中统一的 token 名；
+     * 4. 为开始符号添加增广产生式；
+     * 5. 把规则中的语义动作块提取成 {@code __ACT_n -> ε} 形式的合成产生式。</p>
+     *
+     * @param reader c99.y 或测试语法文件的字符流
+     * @return 可供 FIRST/LR/LALR/ParseTable 阶段使用的 Grammar
+     * @throws IOException 读取语法规则失败时抛出
+     */
     public static Grammar parse(Reader reader) throws IOException {
         BufferedReader br = new BufferedReader(reader);
         Grammar grammar = new Grammar();
@@ -95,6 +121,8 @@ public final class YaccParser {
             rulesText.append(rawLine).append('\n');
         }
 
+        // c99.y 中大量使用 ';'、'(' 这样的字符终结符。项目内部表驱动统一使用
+        // SEMI、LPAREN 等名字，因此先把这些隐式终结符加入 token 集。
         addImplicitCharTokens(tokenNames);
         for (String tok : tokenNames) {
             grammar.terminal(tok);
@@ -165,6 +193,9 @@ public final class YaccParser {
                 }
 
                 if (parsed.actionCode() != null && !parsed.actionCode().isBlank()) {
+                    // yacc 中的 { ... } 动作并不是普通语法符号。这里把它改写为
+                    // 一个空产生式动作节点，使 ParserDriver 规约时能把动作保留到
+                    // parse tree/action tree 中，后续 TranslationSchemeExecutor 再执行。
                     String actionNtName = "__ACT_" + (++syntheticActionCounter);
                     NonTerminal actionNt = grammar.nonTerminal(actionNtName);
                     grammar.addEpsilonProduction(actionNt, parsed.actionCode());
@@ -219,6 +250,13 @@ public final class YaccParser {
         return null;
     }
 
+    /**
+     * 按顶层分隔符拆分 yacc 规则。
+     *
+     * <p>不能直接 {@code split(";")} 或 {@code split("|")}，因为语义动作块、
+     * 字符串、字符字面量和注释内部也可能出现这些字符。该方法用简单状态机
+     * 跟踪花括号深度和引号/注释状态，只在顶层切分。</p>
+     */
     private static List<String> splitTopLevel(String text, char delimiter) {
         List<String> parts = new ArrayList<>();
         if (text == null || text.isEmpty()) {
@@ -407,6 +445,12 @@ public final class YaccParser {
         return -1;
     }
 
+    /**
+     * 解析一个右部候选式。
+     *
+     * <p>返回值同时包含普通 RHS 符号、语义动作代码和 {@code %prec} 指定。
+     * 语义动作本身先只作为文本保存，真正执行发生在语义阶段。</p>
+     */
     private static ParsedAlternative parseAlternative(String text) {
         StringBuilder symbols = new StringBuilder();
         StringBuilder currentAction = new StringBuilder();

@@ -4,6 +4,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * 语义阶段使用的核心 AST 节点。
+ *
+ * <p>与完整 Parse Tree 不同，CoreAstNode 只保留后续语义检查和中间代码生成
+ * 关心的信息，例如函数、块、声明、赋值、return、if/while、二元表达式、
+ * 函数调用、标识符和整数字面量。它由 C99AstNormalizer 从 c99.y 语法树中
+ * 抽取出来，下游交给 SymbolTable/CompileTimeSemanticAnalyzer 和 IR emitter。</p>
+ */
 public final class CoreAstNode {
     private final AstKind kind;
     private final String text;

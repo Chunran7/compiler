@@ -6,6 +6,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * yacc 规则解析后的内部文法模型。
+ *
+ * <p>Grammar 保存终结符、非终结符、产生式、开始符号、增广开始符号、
+ * EOF 终结符以及优先级/结合性声明。它是 YaccParser 的输出，也是
+ * FIRST 集、LR(1)/LALR 项目集和 ParseTable 构造阶段的共同输入。</p>
+ *
+ * <p>报告中可把它作为“Grammar 数据结构”讲解：终结符来自 {@code %token}
+ * 和字符终结符，非终结符来自规则左部/右部，产生式用编号稳定地连接
+ * 规约动作和语法树节点。</p>
+ */
 public final class Grammar {
     private final Map<String, Terminal> terminals = new LinkedHashMap<>();
     private final Map<String, NonTerminal> nonTerminals = new LinkedHashMap<>();
@@ -42,6 +53,13 @@ public final class Grammar {
         return addProduction(left, actionCode, null, right);
     }
 
+    /**
+     * 增加普通产生式，并计算该产生式的优先级。
+     *
+     * <p>如果规则写了 {@code %prec TOKEN}，使用显式 TOKEN；否则使用右部
+     * 最右侧终结符的优先级。这正是 yacc 解决表达式 shift/reduce 冲突时
+     * 常用的规则。</p>
+     */
     public Production addProduction(NonTerminal left, String actionCode, String explicitPrecedenceTokenName, Symbol... right) {
         String precedenceTokenName = explicitPrecedenceTokenName != null && !explicitPrecedenceTokenName.isBlank()
                 ? explicitPrecedenceTokenName.trim()

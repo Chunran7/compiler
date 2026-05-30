@@ -51,6 +51,25 @@ public class GeneratedLexer {
     }
 
     public Token nextToken() {
+        int first = input();
+        if (first == '/') {
+            int second = input();
+            if (second == '*') {
+                comment();
+                return nextToken();
+            }
+            if (second == '/') {
+                skipLineComment();
+                return nextToken();
+            }
+            if (second != -1) {
+                ungetc(second);
+            }
+            ungetc(first);
+        } else if (first != -1) {
+            ungetc(first);
+        }
+
         int state = 0;
         int last_accept_state = -1;
         int last_accept_len = 0;
@@ -315,6 +334,13 @@ public class GeneratedLexer {
 
 	System.out.print(new String(yytext, 0, yyleng));
 }
+
+    private void skipLineComment() {
+        int c;
+        while ((c = input()) != -1 && c != 0) {
+            if (c == '\n') return;
+        }
+    }
 
     private Token check_type() {
 

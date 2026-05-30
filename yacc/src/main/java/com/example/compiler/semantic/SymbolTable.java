@@ -9,6 +9,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * 编译时符号表。
+ *
+ * <p>变量符号按作用域栈管理，函数符号单独保存在全局表中。语义检查进入
+ * 函数体和代码块时调用 enterScope，离开时调用 exitScope；声明变量时只检查
+ * 当前作用域重复，解析变量时从内到外查找。</p>
+ */
 public final class SymbolTable {
     private final Deque<Map<String, Symbol>> scopes = new ArrayDeque<>();
     private final Map<String, Symbol> functions = new LinkedHashMap<>();
@@ -33,6 +40,11 @@ public final class SymbolTable {
         return scopes.size() - 1;
     }
 
+    /**
+     * 在当前作用域声明整型变量。
+     *
+     * @throws SemanticException 当前作用域已有同名变量时抛出
+     */
     public Symbol declare(String name, SymbolType type) {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(type, "type");
@@ -52,6 +64,11 @@ public final class SymbolTable {
         return symbol;
     }
 
+    /**
+     * 在全局函数表中登记函数名和参数数量。
+     *
+     * @throws SemanticException 函数重复定义时抛出
+     */
     public Symbol declareFunction(String name, int parameterCount) {
         Objects.requireNonNull(name, "name");
         if (functions.containsKey(name)) {

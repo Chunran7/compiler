@@ -4,7 +4,8 @@ import java.io.*;
 import java.util.*;
 
 public class CodeGenerator {
-    public String generateJava(List<DfaState> states, List<SeuLexParser.LexRule> rules, String definitions, String userCode) {
+    public String generateJava(List<DfaState> states, List<SeuLexParser.LexRule> rules, String definitions,
+            String userCode) {
         StringBuilder sb = new StringBuilder();
         String defClassBody = "";
 
@@ -37,7 +38,7 @@ public class CodeGenerator {
         sb.append("    private PushbackReader yyin;\n");
         sb.append("    public char[] yytext = new char[4096];\n");
         sb.append("    public int yyleng = 0;\n\n");
-        
+
         sb.append("    public GeneratedLexer(Reader in) {\n");
         sb.append("        this.yyin = new PushbackReader(in, 4096);\n");
         sb.append("    }\n\n");
@@ -45,7 +46,7 @@ public class CodeGenerator {
         sb.append("    public GeneratedLexer(InputStream in) {\n");
         sb.append("        this.yyin = new PushbackReader(new InputStreamReader(in), 4096);\n");
         sb.append("    }\n\n");
-        
+
         // 2. Transition table and other tables
         try (DataOutputStream dos = new DataOutputStream(new FileOutputStream("src/main/resources/lexer_tables.dat"))) {
             dos.writeInt(states.size());
@@ -68,11 +69,12 @@ public class CodeGenerator {
         } catch (IOException e) {
             throw new RuntimeException("Failed to write lexer_tables.dat", e);
         }
-        
+
         sb.append("    private static final int[][] transition_table;\n");
         sb.append("    private static final int[] accept_rule;\n");
         sb.append("    static {\n");
-        sb.append("        try (DataInputStream dis = new DataInputStream(GeneratedLexer.class.getResourceAsStream(\"/lexer_tables.dat\") != null ? GeneratedLexer.class.getResourceAsStream(\"/lexer_tables.dat\") : new FileInputStream(\"src/main/resources/lexer_tables.dat\"))) {\n");
+        sb.append(
+                "        try (DataInputStream dis = new DataInputStream(GeneratedLexer.class.getResourceAsStream(\"/lexer_tables.dat\") != null ? GeneratedLexer.class.getResourceAsStream(\"/lexer_tables.dat\") : new FileInputStream(\"src/main/resources/lexer_tables.dat\"))) {\n");
         sb.append("            int r = dis.readInt();\n");
         sb.append("            int c = dis.readInt();\n");
         sb.append("            transition_table = new int[r][c];\n");
@@ -87,7 +89,7 @@ public class CodeGenerator {
         sb.append("            throw new RuntimeException(\"Failed to load lexer tables\", e);\n");
         sb.append("        }\n");
         sb.append("    }\n\n");
-        
+
         // 4. Input functions
         sb.append("    private int input() {\n");
         sb.append("        try {\n");
@@ -100,15 +102,33 @@ public class CodeGenerator {
         sb.append("    private void ungetc(int c) {\n");
         sb.append("        try { yyin.unread(c); } catch (IOException e) { throw new RuntimeException(e); }\n");
         sb.append("    }\n\n");
-        
+
         // 5. nextToken
         sb.append("    public Token nextToken() {\n");
+        sb.append("        int first = input();\n");
+        sb.append("        if (first == '/') {\n");
+        sb.append("            int second = input();\n");
+        sb.append("            if (second == '*') {\n");
+        sb.append("                comment();\n");
+        sb.append("                return nextToken();\n");
+        sb.append("            }\n");
+        sb.append("            if (second == '/') {\n");
+        sb.append("                skipLineComment();\n");
+        sb.append("                return nextToken();\n");
+        sb.append("            }\n");
+        sb.append("            if (second != -1) {\n");
+        sb.append("                ungetc(second);\n");
+        sb.append("            }\n");
+        sb.append("            ungetc(first);\n");
+        sb.append("        } else if (first != -1) {\n");
+        sb.append("            ungetc(first);\n");
+        sb.append("        }\n\n");
         sb.append("        int state = 0;\n");
         sb.append("        int last_accept_state = -1;\n");
         sb.append("        int last_accept_len = 0;\n");
         sb.append("        yyleng = 0;\n");
         sb.append("        int c;\n");
-        
+
         sb.append("        while ((c = input()) != -1 && c != 0) {\n");
         sb.append("            if (c < 0 || c >= 256) break;\n");
         sb.append("            yytext[yyleng++] = (char)c;\n");
@@ -122,13 +142,13 @@ public class CodeGenerator {
         sb.append("                last_accept_len = yyleng;\n");
         sb.append("            }\n");
         sb.append("        }\n");
-        
+
         sb.append("        if (last_accept_state != -1) {\n");
         sb.append("            for (int i = yyleng - 1; i >= last_accept_len; i--) {\n");
         sb.append("                ungetc(yytext[i]);\n");
         sb.append("            }\n");
         sb.append("            yyleng = last_accept_len;\n\n");
-        
+
         sb.append("            switch (accept_rule[last_accept_state]) {\n");
         for (SeuLexParser.LexRule rule : rules) {
             sb.append("                case ").append(rule.id).append(":\n");
@@ -145,7 +165,7 @@ public class CodeGenerator {
         sb.append("        }\n");
         sb.append("        throw new RuntimeException(\"Lexer error: unexpected character '\" + (char)c + \"'\");\n");
         sb.append("    }\n\n");
-        
+
         // 6. 用户子程序段 — 使用 C→Java 翻译器处理 .l 文件的尾部 C 代码
         if (userCode != null && !userCode.isBlank()) {
             CToJavaTranslator translator = new CToJavaTranslator();
@@ -153,7 +173,7 @@ public class CodeGenerator {
         }
 
         sb.append("}\n");
-        
+
         return sb.toString();
     }
 }

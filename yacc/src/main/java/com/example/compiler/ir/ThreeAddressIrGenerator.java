@@ -1,0 +1,219 @@
+package com.example.compiler.ir;
+
+import com.example.compiler.yacc.ast.AstKind;
+import com.example.compiler.yacc.ast.CoreAstNode;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Core AST 到三地址 IR 的生成器。
+ *
+ * <p>输入是经过语义检查的 Core AST；输出是 IrInstruction 列表。这里的 IR
+ * 表达的是运行时动态语义：变量赋值、二元运算、函数调用、return、if/while
+ * 控制流等。随后 LlvmLikeTextEmitter 或 CSemanticProgramEmitter 会把这些
+ * 语义转换为 LLVM 风格文本。</p>
+ */
+public final class ThreeAddressIrGenerator {
+    private final List<IrInstruction> instructions = new ArrayList<>();
+    private int tempCounter;
+    private int labelCounter;
+
+    /**
+     * 从 PROGRAM 根节点生成完整三地址 IR。
+     *
+     * @param coreRoot Core AST 根节点
+     * @return 不可变 IR 指令列表
+     */
+    public List<IrInstruction> generate(CoreAstNode coreRoot) {
+        instructions.clear();
+        tempCounter = 0;
+        labelCounter = 0;
+
+        generateProgram(coreRoot);
+        return List.copyOf(instructions);
+    }
+
+    private void generateProgram(CoreAstNode node) {
+        expectKind(node, AstKind.PROGRAM);
+        for (CoreAstNode function : node.getChildren()) {
+            generateFunction(function);
+        }
+    }
+
+    private void generateFunction(CoreAstNode node) {
+        if (node.getKind() != AstKind.FUNCTION_DEF && node.getKind() != AstKind.MAIN_FUNCTION) {
+            throw new IllegalStateException("Expected function node but got " + node.getKind());
+        }
+
+        // Core AST 中函数节点的最后一个孩子是函数体 BLOCK，
+        // 前面的孩子都是 PARAMETER。这里先收集参数名，写入函数入口指令。
+        List<String> params = new ArrayList<>();
+        for (int i = 0; i < node.getChildren().size() - 1; i++) {
+            CoreAstNode param = node.getChildren().get(i);
+            expectKind(param, AstKind.PARAMETER);
+            params.add(param.getText());
+        }
+
+        instructions.add(IrInstruction.functionBegin(node.getText(), params));
+        generateBlock(node.getChildren().get(node.getChildren().size() - 1));
+        instructions.add(IrInstruction.functionEnd(node.getText()));
+    }
+
+    private void generateBlock(CoreAstNode node) {
+        expectKind(node, AstKind.BLOCK);
+        for (CoreAstNode child : node.getChildren()) {
+            generateStatement(child);
+        }
+    }
+
+    private void generateStatement(CoreAstNode node) {
+        switch (node.getKind()) {
+            case DECLARATION -> generateDeclaration(node);
+            case ASSIGNMENT -> generateAssignment(node);
+            case EXPRESSION_STMT -> generateExpressionStatement(node);
+            case RETURN_STMT -> generateReturn(node);
+            case IF_STMT -> generateIf(node);
+            case WHILE_STMT -> generateWhile(node);
+            case BLOCK -> generateBlock(node);
+            default -> throw new IllegalStateException("Unsupported statement kind in IR generation: " + node.getKind());
+        }
+    }
+
+    private void generateDeclaration(CoreAstNode node) {
+        expectKind(node, AstKind.DECLARATION);
+        if (node.getChildren().size() >= 2) {
+            // 声明带初始化时才生成赋值 IR；单纯 int a; 不需要运行时动作，
+            // 变量的 alloca 会在 LLVM 发射阶段第一次看到变量名时生成。
+            CoreAstNode identifier = node.getChildren().get(0);
+            String value = generateExpression(node.getChildren().get(1));
+            instructions.add(IrInstruction.assign(identifier.getText(), value));
+        }
+    }
+
+    private void generateAssignment(CoreAstNode node) {
+        expectKind(node, AstKind.ASSIGNMENT);
+        String value = generateExpression(node.getChildren().get(1));
+        instructions.add(IrInstruction.assign(node.getChildren().get(0).getText(), value));
+    }
+
+    private void generateExpressionStatement(CoreAstNode node) {
+        expectKind(node, AstKind.EXPRESSION_STMT);
+        CoreAstNode expr = node.getChildren().get(0);
+        if (expr.getKind() == AstKind.FUNCTION_CALL) {
+            emitFunctionCall(expr, false);
+            return;
+        }
+        generateExpression(expr);
+    }
+
+    private void generateReturn(CoreAstNode node) {
+        expectKind(node, AstKind.RETURN_STMT);
+        instructions.add(IrInstruction.ret(generateExpression(node.getChildren().get(0))));
+    }
+
+    private void generateIf(CoreAstNode node) {
+        expectKind(node, AstKind.IF_STMT);
+
+        String condition = generateExpression(node.getChildren().get(0));
+
+        if (node.getChildren().size() == 2) {
+            String endLabel = nextLabel();
+            // 无 else 的 if：条件为假直接跳到结束标签；条件为真则顺序执行 then 分支。
+            instructions.add(IrInstruction.ifFalseGoTo(condition, endLabel));
+            generateStatement(node.getChildren().get(1));
+            instructions.add(IrInstruction.label(endLabel));
+            return;
+        }
+
+        String elseLabel = nextLabel();
+        String endLabel = nextLabel();
+
+        // 有 else 的 if：false 跳到 elseLabel；then 执行完需要跳过 else 到 endLabel。
+        instructions.add(IrInstruction.ifFalseGoTo(condition, elseLabel));
+        generateStatement(node.getChildren().get(1));
+        instructions.add(IrInstruction.goTo(endLabel));
+        instructions.add(IrInstruction.label(elseLabel));
+        generateStatement(node.getChildren().get(2));
+        instructions.add(IrInstruction.label(endLabel));
+    }
+
+    private void generateWhile(CoreAstNode node) {
+        expectKind(node, AstKind.WHILE_STMT);
+
+        String startLabel = nextLabel();
+        String endLabel = nextLabel();
+
+        // while 翻译为典型的 label + 条件跳转 + body + 回边。
+        // startLabel 是循环头，endLabel 是条件为假时跳出的出口。
+        instructions.add(IrInstruction.label(startLabel));
+        String condition = generateExpression(node.getChildren().get(0));
+        instructions.add(IrInstruction.ifFalseGoTo(condition, endLabel));
+        generateStatement(node.getChildren().get(1));
+        instructions.add(IrInstruction.goTo(startLabel));
+        instructions.add(IrInstruction.label(endLabel));
+    }
+
+    private String generateExpression(CoreAstNode node) {
+        return switch (node.getKind()) {
+            // 标识符和整数字面量可以直接作为操作数；是否需要 load
+            // 由 LLVM 发射器根据“变量名/立即数/临时变量”再决定。
+            case IDENTIFIER, INT_LITERAL -> node.getText();
+            case BINARY_EXPR -> generateBinary(node);
+            case FUNCTION_CALL -> emitFunctionCall(node, true);
+            default -> throw new IllegalStateException("Unsupported expression kind in IR generation: " + node.getKind());
+        };
+    }
+
+    private String generateBinary(CoreAstNode node) {
+        String left = generateExpression(node.getChildren().get(0));
+        String right = generateExpression(node.getChildren().get(1));
+        String temp = nextTemp();
+
+        // 二元表达式必须产生一个临时变量，供外层表达式或 return/assign 使用。
+        instructions.add(IrInstruction.binary(mapBinaryOp(node.getText()), temp, left, right));
+        return temp;
+    }
+
+    private String emitFunctionCall(CoreAstNode node, boolean withResult) {
+        List<String> args = new ArrayList<>();
+        for (CoreAstNode arg : node.getChildren()) {
+            args.add(generateExpression(arg));
+        }
+
+        // 表达式位置的调用需要保存返回值；单独的表达式语句调用可以丢弃返回值。
+        String target = withResult ? nextTemp() : null;
+        instructions.add(IrInstruction.call(target, node.getText(), args));
+        return target;
+    }
+
+    private IrOp mapBinaryOp(String op) {
+        return switch (op) {
+            case "+" -> IrOp.ADD;
+            case "-" -> IrOp.SUB;
+            case "*" -> IrOp.MUL;
+            case "/" -> IrOp.DIV;
+            case "<" -> IrOp.LT;
+            case "<=" -> IrOp.LE;
+            case ">" -> IrOp.GT;
+            case ">=" -> IrOp.GE;
+            case "==" -> IrOp.EQ;
+            case "!=" -> IrOp.NE;
+            default -> throw new IllegalStateException("Unsupported operator: " + op);
+        };
+    }
+
+    private String nextTemp() {
+        return "t" + (++tempCounter);
+    }
+
+    private String nextLabel() {
+        return "L" + (++labelCounter);
+    }
+
+    private void expectKind(CoreAstNode node, AstKind expected) {
+        if (node.getKind() != expected) {
+            throw new IllegalStateException("Expected " + expected + " but got " + node.getKind());
+        }
+    }
+}

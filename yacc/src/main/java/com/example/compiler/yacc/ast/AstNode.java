@@ -4,6 +4,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * c99.y 规约得到的语法树节点。
+ *
+ * <p>AstNode 保留原始语法符号、词素、产生式编号和子节点，因此更接近
+ * Parse Tree/action-tree，而不是最终语义 AST。若某个节点来自 yacc 语义动作
+ * 合成产生式（{@code __ACT_n -> ε}），semanticActionNode 会被标记为 true，
+ * 后续 TranslationSchemeExecutor 可以读取 actionCode 并计算语义值。</p>
+ */
 public final class AstNode {
     private final String symbolName;
     private final String lexeme;
