@@ -4,6 +4,9 @@ import java.io.*;
 import com.example.compiler.yacc.token.*;
 
 public class GeneratedLexer {
+    // #include <stdio.h>
+    // #include "y.tab.h"
+    // void count(void);   /* 计算词法元素所占用的列，在规则部分被使用，函数体在第二个%%之后 */ (forward decl)
     private PushbackReader yyin;
     public char[] yytext = new char[4096];
     public int yyleng = 0;
@@ -77,7 +80,7 @@ public class GeneratedLexer {
                     { comment(); }
                     break;
                 case 2:
-                    { /* consume //-comment */ }
+                    {  }
                     break;
                 case 3:
                     { count(); return new Token(TokenType.AUTO, new String(yytext, 0, yyleng)); }
@@ -154,29 +157,29 @@ public class GeneratedLexer {
                 case 39:
                     { count(); return new Token(TokenType.WHILE, new String(yytext, 0, yyleng)); }
                 case 40:
-                    { count(); return(check_type()); }                   /* identifier, 也可能是保留字*/
+                    { count(); return(check_type()); }
                 case 41:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }             /* 16进制数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 42:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }             /* 8进制数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 43:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }             /* 10进制数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 44:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }             // 6.4.4.4 Character constants p59
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 45:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }              /* 10进制浮点数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 46:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }          /* 10进制浮点数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 47:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }          /* 10进制浮点数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 48:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }               /* 16进制浮点数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 49:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }     /* 16进制浮点数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 50:
-                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }     /* 16进制浮点数 */
+                    { count(); return new Token(TokenType.CONSTANT, new String(yytext, 0, yyleng)); }
                 case 51:
-                    { count(); return new Token(TokenType.STRING_LITERAL, new String(yytext, 0, yyleng)); }  // 6.4.5 String literals p62
+                    { count(); return new Token(TokenType.STRING_LITERAL, new String(yytext, 0, yyleng)); }
                 case 52:
                     { count(); return new Token(TokenType.ELLIPSIS, new String(yytext, 0, yyleng)); }
                 case 53:
@@ -273,7 +276,7 @@ public class GeneratedLexer {
                     { count(); }
                     break;
                 case 99:
-                    { /* Add code to complain about unmatched characters */ }
+                    {  }
                     break;
             }
             return nextToken();
@@ -284,35 +287,41 @@ public class GeneratedLexer {
         throw new RuntimeException("Lexer error: unexpected character '" + (char)c + "'");
     }
 
-    public int column = 0;
-
-    private void count() {
-        for (int i = 0; i < yyleng; i++) {
-            if (yytext[i] == '\n') {
-                column = 0;
-            } else if (yytext[i] == '\t') {
-                column += 8 - (column % 8);
-            } else {
-                column++;
-            }
-        }
-    }
+    private void error(String msg) {
+    throw new RuntimeException("error: %s\n" + msg);
+}
 
     private void comment() {
-        int c, prev = 0;
-        while ((c = input()) != -1 && c != 0) {
-            if (c == '/' && prev == '*') return;
-            prev = c;
-        }
-        error("unterminated comment");
-    }
+	char c, prev = 0;
+  
+	while ((c = input()) != -1 && c != 0)      
+	{
+		if (c == '/' && prev == '*')     
+			return;
+		prev = c;
+	}
+	error("unterminated comment");
+}
+
+    public int column = 0;
+    private void count() {
+	for (int i = 0; i < yyleng; i++)         
+		if (yytext[i] == '\n')
+			column = 0;
+		else if (yytext[i] == '\t')
+			column += 8 - (column % 8);
+		else
+			column++;
+
+	System.out.print(new String(yytext, 0, yyleng));
+}
 
     private Token check_type() {
-        return new Token(TokenType.IDENTIFIER, new String(yytext, 0, yyleng));
-    }
 
-    private void error(String msg) {
-        throw new RuntimeException("Lexer error: " + msg);
-    }
+
+
+
+	return new Token(TokenType.IDENTIFIER, new String(yytext, 0, yyleng));
+}
 
 }

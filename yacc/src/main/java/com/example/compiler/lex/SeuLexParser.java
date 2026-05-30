@@ -232,6 +232,11 @@ public class SeuLexParser {
      * </p>
      */
     public static String translateAction(String action) {
+        // 如果已经是 Java 代码（包含 new Token( 或 TokenType.），跳过翻译
+        if (action.contains("new Token(") || action.contains("TokenType.")) {
+            return action;
+        }
+
         // 1. 翻译 return(大写_TOKEN) → return new Token(TokenType.TOKEN, ...)
         // 只匹配大写字母和下划线开头的 token 名，避免误匹配 check_type() 这种小写函数
         action = action.replaceAll(

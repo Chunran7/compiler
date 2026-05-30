@@ -6,26 +6,34 @@ import java.util.*;
 public class CodeGenerator {
     public String generateJava(List<DfaState> states, List<SeuLexParser.LexRule> rules, String definitions, String userCode) {
         StringBuilder sb = new StringBuilder();
-        
+        String defClassBody = "";
+
         sb.append("package com.example.compiler.lex;\n\n");
         sb.append("import java.io.*;\n");
         sb.append("import com.example.compiler.yacc.token.*;\n");
-        
-        // 1. Definition block — 跳过 C 的 #include, 由 Generator 自行导入所需类型
+
+        // 1. Definition block — 使用 C→Java 翻译器处理 %{...%} 块
         if (definitions != null && definitions.contains("%{") && definitions.contains("%}")) {
             int start = definitions.indexOf("%{") + 2;
             int end = definitions.indexOf("%}");
             String defBlock = definitions.substring(start, end);
-            // 仅保留 Java import 行，过滤 C 的 #include / 声明
-            for (String line : defBlock.split("\n")) {
-                String trimmed = line.trim();
-                if (trimmed.startsWith("import ") || trimmed.startsWith("package ")) {
-                    sb.append(trimmed).append("\n");
-                }
+            CToJavaTranslator translator = new CToJavaTranslator();
+            String[] defParts = translator.translateDefinitionBlock(defBlock);
+            // defParts[0] = import/package 行（类体前）
+            if (!defParts[0].isEmpty()) {
+                sb.append(defParts[0]);
             }
+            // defParts[1] = 类体内代码
+            defClassBody = defParts[1];
         }
-        
+
         sb.append("\npublic class GeneratedLexer {\n");
+
+        // 发出 %{...%} 块中翻译后的类体内代码
+        if (!defClassBody.isEmpty()) {
+            sb.append(defClassBody);
+        }
+
         sb.append("    private PushbackReader yyin;\n");
         sb.append("    public char[] yytext = new char[4096];\n");
         sb.append("    public int yyleng = 0;\n\n");
@@ -138,40 +146,11 @@ public class CodeGenerator {
         sb.append("        throw new RuntimeException(\"Lexer error: unexpected character '\" + (char)c + \"'\");\n");
         sb.append("    }\n\n");
         
-        // 6. Built-in Java 辅助方法（替代 c99.l 尾部 C 代码的用户子程序段）
-        sb.append("    public int column = 0;\n\n");
-
-        sb.append("    private void count() {\n");
-        sb.append("        for (int i = 0; i < yyleng; i++) {\n");
-        sb.append("            if (yytext[i] == '\\n') {\n");
-        sb.append("                column = 0;\n");
-        sb.append("            } else if (yytext[i] == '\\t') {\n");
-        sb.append("                column += 8 - (column % 8);\n");
-        sb.append("            } else {\n");
-        sb.append("                column++;\n");
-        sb.append("            }\n");
-        sb.append("        }\n");
-        sb.append("    }\n\n");
-
-        sb.append("    private void comment() {\n");
-        sb.append("        int c, prev = 0;\n");
-        sb.append("        while ((c = input()) != -1 && c != 0) {\n");
-        sb.append("            if (c == '/' && prev == '*') return;\n");
-        sb.append("            prev = c;\n");
-        sb.append("        }\n");
-        sb.append("        error(\"unterminated comment\");\n");
-        sb.append("    }\n\n");
-
-        sb.append("    private Token check_type() {\n");
-        sb.append("        return new Token(TokenType.IDENTIFIER, new String(yytext, 0, yyleng));\n");
-        sb.append("    }\n\n");
-
-        sb.append("    private void error(String msg) {\n");
-        sb.append("        throw new RuntimeException(\"Lexer error: \" + msg);\n");
-        sb.append("    }\n\n");
-
-        // 7. 用户自定义代码：已由上方 Java 方法替代，不再追加 C 代码
-        // （c99.l 尾部的 count/comment/check_type/error 等 C 函数由内置 Java 实现替代）
+        // 6. 用户子程序段 — 使用 C→Java 翻译器处理 .l 文件的尾部 C 代码
+        if (userCode != null && !userCode.isBlank()) {
+            CToJavaTranslator translator = new CToJavaTranslator();
+            sb.append(translator.translateUserSubroutines(userCode));
+        }
 
         sb.append("}\n");
         
